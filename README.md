@@ -89,14 +89,15 @@ smart-room/
  │   ├── screens/         # App screens (UI)
  │   │   ├── auth/
  │   │   ├── home/
- │   │   ├── room/
- │   │   ├── booking/
- │   │   └── profile/
+ │   │   ├── owner/
+ │   │   ├── user/
  │   ├── themes/          # App themes, colors
  │   ├── utils/           # Helper functions, constants, validators
  │   ├── widgets/         # Custom reusable widgets
  │   └── main.dart        # App entry point
- ├── assets/              # Images, icons, fonts
+ ├── assets/              # Images,fonts
+ │   │   ├── fonts/   
+ │   │   ├── images/
  ├── firebase/            # Firebase configuration
  ├── README.md
  └── pubspec.yaml
