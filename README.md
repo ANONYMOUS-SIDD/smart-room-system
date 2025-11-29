@@ -84,13 +84,20 @@
 <pre>
 smart-room/
  ├── lib/
- │   ├── models/
- │   ├── screens/
- │   ├── services/
- │   ├── widgets/
- │   └── utils/
- ├── assets/
- ├── firebase/
+ │   ├── controllers/     # GetX controllers
+ │   ├── models/          # Data models
+ │   ├── screens/         # App screens (UI)
+ │   │   ├── auth/
+ │   │   ├── home/
+ │   │   ├── room/
+ │   │   ├── booking/
+ │   │   └── profile/
+ │   ├── themes/          # App themes, colors
+ │   ├── utils/           # Helper functions, constants, validators
+ │   ├── widgets/         # Custom reusable widgets
+ │   └── main.dart        # App entry point
+ ├── assets/              # Images, icons, fonts
+ ├── firebase/            # Firebase configuration
  ├── README.md
  └── pubspec.yaml
 </pre>
@@ -123,9 +130,6 @@ flutter run
 <p>Pull requests are welcome! Open an issue to discuss improvements.</p>
 
 <hr>
-
-<h2>📜 License</h2>
-<p>MIT License</p>
 
 <br><br>
 
