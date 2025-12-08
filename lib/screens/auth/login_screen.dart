@@ -14,6 +14,7 @@ import '../auth/widgets/auth_buttons.dart';
 import '../auth/widgets/auth_header.dart';
 import '../auth/widgets/input_container.dart';
 import '../auth/widgets/input_fields.dart';
+import '../home/home_screen.dart';
 import 'signup_screen.dart';
 
 /// User Login Screen For Existing Account Authentication
@@ -44,7 +45,7 @@ class LoginScreen extends StatelessWidget {
       authController.initializeUserSession();
       toastService.showSuccessMessage("Login Successful!");
       // Navigate to home screen after successful login
-      // Get.offAll(() => HomeScreen());
+      Get.offAll(() => HomeScreen());
     }
 
     loaderController.stopLoading();
