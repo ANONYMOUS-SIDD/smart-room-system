@@ -44,7 +44,7 @@ class SignUpScreen extends StatelessWidget {
 
     if (user != null) {
       authController.initializeUserSession();
-      Get.offAll(() => const LoginScreen());
+      Get.offAll(() => LoginScreen());
     }
 
     loaderController.stopLoading();
@@ -180,7 +180,7 @@ class SignUpScreen extends StatelessWidget {
         const OrDivider(),
         const SizedBox(height: 15),
         // Secondary Login Button
-        SecondaryAuthButton(text: "Use Existing Account", icon: Icons.person, onPressed: () => Get.off(() => const LoginScreen())),
+        SecondaryAuthButton(text: "Use Existing Account", icon: Icons.person, onPressed: () => Get.off(() => LoginScreen())),
         const SizedBox(height: 15),
       ],
     );
