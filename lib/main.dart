@@ -2,12 +2,12 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:smart_room/screens/home/splash_screen.dart';
 
 import 'controllers/auth_controller.dart';
 import 'controllers/loader_controller.dart';
 import 'controllers/show_password_controller.dart';
 import 'firebase_options.dart';
-import 'screens/auth/signup_screen.dart';
 import 'services/auth_service.dart';
 import 'services/toast_service.dart';
 
@@ -74,6 +74,6 @@ class AppHome extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(backgroundColor: Colors.white, body: SignUpScreen());
+    return Scaffold(backgroundColor: Colors.white, body: SplashScreen());
   }
 }
