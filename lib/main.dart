@@ -159,15 +159,18 @@ class RoomListingScreen extends StatelessWidget {
             const SizedBox(height: 10),
 
             // -------------------------------------------
-            // 4. TITLE TEXT
+            // 4. TITLE TEXT (Left-Aligned)
             // -------------------------------------------
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-              child: Text(
-                "Showing Rooms in Dhulikhel",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+              child: Align(
+                alignment: Alignment.centerLeft, // Left-align the text
+                child: Text(
+                  "Showing Rooms in Dhulikhel",
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ),
