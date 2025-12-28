@@ -6,7 +6,7 @@ import 'package:lottie/lottie.dart';
 
 import '../../services/auth_service.dart';
 import '../auth/login_screen.dart';
-import 'home_screen.dart';
+import '../main/main_screen.dart';
 
 /// Splash Screen - First Screen Displayed When App Launches
 class SplashScreen extends StatefulWidget {
@@ -75,7 +75,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   void _navigateBasedOnAuthStatus() {
     if (_authService.isLoggedIn) {
       // User Is Already Logged In, Navigate To Home Screen
-      Get.off(() => const HomeScreen());
+      Get.off(() => const MainScreen());
     } else {
       // User Is Not Logged In, Navigate To Login Screen
       Get.off(() => LoginScreen());

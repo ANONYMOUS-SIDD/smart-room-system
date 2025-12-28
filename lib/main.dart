@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:smart_room/screens/home/splash_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'; // Import Supabase
 
 import 'controllers/auth_controller.dart';
 import 'controllers/loader_controller.dart';
@@ -10,6 +11,7 @@ import 'controllers/show_password_controller.dart';
 import 'firebase_options.dart';
 import 'services/auth_service.dart';
 import 'services/toast_service.dart';
+import 'config.dart'; // Import your config file
 
 /// Main Application Entry Point
 Future<void> main() async {
@@ -18,6 +20,13 @@ Future<void> main() async {
 
   /// Initialize Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  /// Initialize Supabase
+  await Supabase.initialize(
+    url: AppConfig.supabaseUrl,
+    anonKey: AppConfig.supabaseAnonKey,
+    debug: false, // Set to true for debugging in development
+  );
 
   /// Set Transparent Status Bar With Dark Icons (Black Icons)
   SystemChrome.setSystemUIOverlayStyle(
@@ -65,6 +74,9 @@ class AppBindings extends Bindings {
     // Register Services
     Get.lazyPut(() => AuthService(), fenix: true);
     Get.lazyPut(() => ToastService(), fenix: true);
+
+    // Get Supabase client instance (optional - if you want to access it via GetX)
+    Get.lazyPut(() => Supabase.instance.client, fenix: true);
   }
 }
 
@@ -74,6 +86,9 @@ class AppHome extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(backgroundColor: Colors.white, body: SplashScreen());
+    return Scaffold(
+        backgroundColor: Colors.white,
+        body: SplashScreen()
+    );
   }
 }
