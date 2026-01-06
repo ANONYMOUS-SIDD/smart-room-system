@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../widgets/modern_app_bar.dart';
 import '../auth/login_screen.dart';
 import '../auth/signup_screen.dart';
 
@@ -12,6 +13,7 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      appBar: const ModernAppBar(title: "Home"), // Using your ModernAppBar
       body: SafeArea(
         child: Column(
           children: [
