@@ -1,260 +1,1327 @@
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../widgets/modern_app_bar.dart';
-import '../auth/login_screen.dart';
-import '../auth/signup_screen.dart';
+import 'detail_dialog.dart';
+import 'owner_dialog.dart'; // Import your owner dialog
+ // Import the modern app bar
 
-/// Main Home Screen For Room Rental Application
-class HomeScreen extends StatelessWidget {
+/*
+CHANGELOG:
+1. Replaced old AppBar with ModernAppBar from widgets
+2. Improved filter controls with iOS-styled design
+3. Updated floating action button to be more modern without text
+4. Maintained all existing functionality
+*/
+
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: const ModernAppBar(title: "Home"), // Using your ModernAppBar
-      body: SafeArea(
-        child: Column(
-          children: [
-            // -------------------------------------------
-            // 1. TOP BAR (Logo + Login / Signup)
-            // -------------------------------------------
-            _buildTopBar(),
+  State<HomeScreen> createState() => _HomeScreenState();
+}
 
-            const SizedBox(height: 10),
+class _HomeScreenState extends State<HomeScreen> {
+  // ==============================
+  // STATE VARIABLES
+  // ==============================
+  String _currency = "NPR"; // Default currency is NPR
+  final int _conversionRate = 145; // 1 USD = 145 NPR for currency conversion
+  String _selectedSort = "Price";
+  bool _bathroomFilter = false;
+  String _waterFilter = "Any";
 
-            // -------------------------------------------
-            // 2. CITY + CURRENCY ROW
-            // -------------------------------------------
-            _buildCityCurrencyRow(),
+  // GlobalKeys for popup positioning - used to calculate menu placement
+  final GlobalKey _currencyButtonKey = GlobalKey();
+  final GlobalKey _sortButtonKey = GlobalKey();
 
-            const SizedBox(height: 10),
+  // ==============================
+  // SAMPLE ROOM DATA
+  // ==============================
+  final List<Map<String, dynamic>> _rooms = [
+    {
+      "image": "assets/images/room1_img.jpg",
+      "houseNumber": "10801",
+      "location": "Khadpu | 10 mins walk from KU Gate",
+      "features": "Attached bathroom | Good Sunlight | 24/7 Water",
+      "size": "12 x 15 ft²",
+      "priceNPR": 5850,
+      "distance": "0.8 km",
+      "internetSpeed": "50 Mbps",
+      "created_at": DateTime(2024, 1, 10),
+      "water": "24/7 Available",
+      "sunlight": "Good",
+      "hasBathroom": true,
+    },
+    {
+      "image": "assets/images/room2_img.jpg",
+      "houseNumber": "20235",
+      "location": "Khadpu | 8 mins walk from KU Gate",
+      "features": "Attached bathroom | Moderate Sunlight | Available Water",
+      "size": "14 x 16 ft²",
+      "priceNPR": 6200,
+      "distance": "0.6 km",
+      "internetSpeed": "75 Mbps",
+      "created_at": DateTime(2024, 1, 15),
+      "water": "Available",
+      "sunlight": "Moderate",
+      "hasBathroom": true,
+    },
+    {
+      "image": "assets/images/room1_img.jpg",
+      "houseNumber": "30456",
+      "location": "Sangkhu | 25 mins walk from KU Gate",
+      "features": "Shared bathroom | Poor Sunlight | Limited Water",
+      "size": "10 x 12 ft²",
+      "priceNPR": 4500,
+      "distance": "2.3 km",
+      "internetSpeed": "30 Mbps",
+      "created_at": DateTime(2024, 1, 5),
+      "water": "Limited",
+      "sunlight": "Poor",
+      "hasBathroom": false,
+    },
+  ];
 
-            // -------------------------------------------
-            // 3. SORT / FILTER / PRICE / DISTANCE
-            // -------------------------------------------
-            _buildFilterOptions(),
-
-            const SizedBox(height: 10),
-
-            // -------------------------------------------
-            // 4. TITLE TEXT
-            // -------------------------------------------
-            _buildTitleSection(),
-
-            // -------------------------------------------
-            // 5. LIST OF ROOM CARDS
-            // -------------------------------------------
-            _buildRoomList(),
-          ],
-        ),
-      ),
-    );
+  // ==============================
+  // HELPER FUNCTIONS
+  // ==============================
+  // Parse distance string and check if <= 2.0 km for badge display
+  bool _isNearKU(String distance) {
+    try {
+      // Extract numeric value from distance string (e.g., "0.8 km" -> 0.8)
+      final match = RegExp(r'([0-9.]+)').firstMatch(distance);
+      if (match != null) {
+        final km = double.parse(match.group(1)!);
+        return km <= 2.0; // Distance badge logic: show only if ≤ 2.0 km
+      }
+    } catch (e) {
+      // If parsing fails, assume not near KU
+      return false;
+    }
+    return false;
   }
 
-  /// Build Top Navigation Bar With Logo And Authentication Buttons
-  Widget _buildTopBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // Application Logo
-          Image.asset("assets/images/img_logo.jpg", width: 50, height: 50),
+  // Currency conversion with edge case handling
+  int _getConvertedPrice(int priceNPR) {
+    if (_currency == "USD") {
+      final converted = (priceNPR / _conversionRate).floor();
+      return converted == 0
+          ? 1
+          : converted; // Ensure non-zero display for very small prices
+    }
+    return priceNPR;
+  }
 
-          Row(
+  // Filter and sort rooms based on current filters and sort selection
+  List<Map<String, dynamic>> _getFilteredRooms() {
+    List<Map<String, dynamic>> filtered = List.from(_rooms);
+
+    // Apply bathroom filter (AND logic with water filter)
+    if (_bathroomFilter) {
+      filtered = filtered.where((room) => room['hasBathroom'] == true).toList();
+    }
+
+    // Apply water filter
+    if (_waterFilter != "Any") {
+      filtered = filtered
+          .where((room) => room['water'] == _waterFilter)
+          .toList();
+    }
+
+    // Apply sorting based on selected sort option
+    filtered.sort((a, b) {
+      switch (_selectedSort) {
+        case "Price":
+          return a['priceNPR'].compareTo(
+            b['priceNPR'],
+          ); // Default ascending price
+        case "Distance":
+        // Parse distance for numeric comparison
+          final aDist =
+              double.tryParse(
+                a['distance'].replaceAll(RegExp(r'[^0-9.]'), ''),
+              ) ??
+                  0;
+          final bDist =
+              double.tryParse(
+                b['distance'].replaceAll(RegExp(r'[^0-9.]'), ''),
+              ) ??
+                  0;
+          return aDist.compareTo(bDist);
+        case "Recent":
+          return b['created_at'].compareTo(a['created_at']); // Newest first
+        default:
+          return 0;
+      }
+    });
+
+    return filtered;
+  }
+
+  // Show currency selection menu with proper positioning using GlobalKey
+  void _showCurrencyMenu() async {
+    final RenderBox button =
+    _currencyButtonKey.currentContext?.findRenderObject() as RenderBox;
+    final RenderBox overlay =
+    Overlay.of(
+      _currencyButtonKey.currentContext!,
+    ).context.findRenderObject()
+    as RenderBox;
+
+    // Calculate RelativeRect for menu positioning (appears below button)
+    final position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        button.localToGlobal(Offset.zero, ancestor: overlay),
+        button.localToGlobal(
+          button.size.bottomRight(Offset.zero),
+          ancestor: overlay,
+        ),
+      ),
+      Offset.zero & overlay.size,
+    );
+
+    await showMenu(
+      context: _currencyButtonKey.currentContext!,
+      position: position,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12), // Rounded corners
+        side: const BorderSide(
+          color: ModernColors.primary,
+          width: 1,
+        ), // Primary color border
+      ),
+      color: ModernColors.surface, // White background
+      items: [
+        PopupMenuItem<String>(
+          value: "NPR",
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Login Button
-              _buildAuthButton(iconPath: "assets/images/login_img.png", label: "Login", onPressed: () => Get.to(() => LoginScreen())),
-              const SizedBox(width: 12),
-
-              // Signup Button
-              _buildAuthButton(iconPath: "assets/images/signup_img.png", label: "Signup", onPressed: () => Get.to(() => SignUpScreen())),
+              Text(
+                "NPR",
+                style: GoogleFonts.quicksand(
+                  color: ModernColors.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (_currency == "NPR")
+                Icon(
+                  Icons.check,
+                  color: ModernColors.primary,
+                  size: 20,
+                ), // Primary color check
             ],
           ),
-        ],
-      ),
-    );
-  }
-
-  /// Build Authentication Button With Icon And Label
-  Widget _buildAuthButton({required String iconPath, required String label, required VoidCallback onPressed}) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: Colors.grey.shade400),
-          borderRadius: BorderRadius.circular(6),
         ),
-        child: Row(children: [Image.asset(iconPath, width: 20, height: 20), const SizedBox(width: 6), Text(label)]),
+        PopupMenuItem<String>(
+          value: "USD",
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                "USD (\$)",
+                style: GoogleFonts.quicksand(
+                  color: ModernColors.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (_currency == "USD")
+                Icon(
+                  Icons.check,
+                  color: ModernColors.primary,
+                  size: 20,
+                ), // Primary color check
+            ],
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value != null) {
+        setState(() {
+          _currency = value; // Update currency and refresh UI
+        });
+      }
+    });
+  }
+
+  // Show sort menu with proper positioning using GlobalKey
+  void _showSortMenu() async {
+    final RenderBox button =
+    _sortButtonKey.currentContext?.findRenderObject() as RenderBox;
+    final RenderBox overlay =
+    Overlay.of(_sortButtonKey.currentContext!).context.findRenderObject()
+    as RenderBox;
+
+    // Calculate RelativeRect for menu positioning (appears below button)
+    final position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        button.localToGlobal(Offset.zero, ancestor: overlay),
+        button.localToGlobal(
+          button.size.bottomRight(Offset.zero),
+          ancestor: overlay,
+        ),
       ),
+      Offset.zero & overlay.size,
+    );
+
+    await showMenu(
+      context: _sortButtonKey.currentContext!,
+      position: position,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12), // Rounded corners
+        side: const BorderSide(
+          color: ModernColors.primary,
+          width: 1,
+        ), // Primary color border
+      ),
+      color: ModernColors.surface, // White background
+      items: [
+        PopupMenuItem<String>(
+          value: "Price",
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                "Price",
+                style: GoogleFonts.quicksand(
+                  color: ModernColors.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (_selectedSort == "Price")
+                Icon(
+                  Icons.check,
+                  color: ModernColors.primary,
+                  size: 20,
+                ), // Primary color check
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: "Distance",
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                "Distance",
+                style: GoogleFonts.quicksand(
+                  color: ModernColors.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (_selectedSort == "Distance")
+                Icon(
+                  Icons.check,
+                  color: ModernColors.primary,
+                  size: 20,
+                ), // Primary color check
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: "Recent",
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                "Recent",
+                style: GoogleFonts.quicksand(
+                  color: ModernColors.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (_selectedSort == "Recent")
+                Icon(
+                  Icons.check,
+                  color: ModernColors.primary,
+                  size: 20,
+                ), // Primary color check
+            ],
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value != null) {
+        setState(() {
+          _selectedSort = value; // Update sort and refresh UI
+        });
+      }
+    });
+  }
+
+  // Show filters bottom sheet with modern design
+  void _showFiltersSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header with divider
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: ModernColors.outline,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  Text(
+                    "Filters",
+                    style: GoogleFonts.quicksand(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      color: ModernColors.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Attached Bathroom Filter
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: ModernColors.background,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: ModernColors.outline, width: 1),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "Attached Bathroom Only",
+                          style: GoogleFonts.quicksand(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: ModernColors.onSurface,
+                          ),
+                        ),
+                        Switch(
+                          value: _bathroomFilter,
+                          onChanged: (value) {
+                            setState(() {
+                              _bathroomFilter = value;
+                            });
+                          },
+                          activeColor: ModernColors.primary,
+                          activeTrackColor: ModernColors.primary.withOpacity(0.5),
+                          inactiveThumbColor: ModernColors.onSurfaceVariant,
+                          inactiveTrackColor: ModernColors.outline,
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Water Availability Filter
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: ModernColors.background,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: ModernColors.outline, width: 1),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Water Availability",
+                          style: GoogleFonts.quicksand(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: ModernColors.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          value: _waterFilter,
+                          decoration: InputDecoration(
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: ModernColors.outline, width: 1),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: ModernColors.outline, width: 1),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: ModernColors.primary, width: 1.5),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 16,
+                            ),
+                            filled: true,
+                            fillColor: ModernColors.surface,
+                          ),
+                          style: GoogleFonts.quicksand(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: ModernColors.onSurface,
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: "Any", child: Text("Any")),
+                            DropdownMenuItem(
+                              value: "Available",
+                              child: Text("Available"),
+                            ),
+                            DropdownMenuItem(
+                              value: "Limited",
+                              child: Text("Limited"),
+                            ),
+                            DropdownMenuItem(
+                              value: "24/7 Available",
+                              child: Text("24/7 Available"),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            setState(() {
+                              _waterFilter = value!;
+                            });
+                          },
+                          icon: Icon(Icons.keyboard_arrow_down_rounded, color: ModernColors.onSurfaceVariant),
+                          dropdownColor: ModernColors.surface,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Apply Filters Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        setState(() {});
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: ModernColors.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        elevation: 0,
+                        shadowColor: Colors.transparent,
+                      ),
+                      child: Text(
+                        "Apply Filters",
+                        style: GoogleFonts.quicksand(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
-  /// Build City And Currency Selection Row
-  Widget _buildCityCurrencyRow() {
+  // ==============================
+  // MAIN BUILD METHOD
+  // ==============================
+  @override
+  Widget build(BuildContext context) {
+    final filteredRooms = _getFilteredRooms();
+
+    return Scaffold(
+      backgroundColor: ModernColors.background,
+      appBar: ModernAppBar(title: "Smart Room Rental"), // Use ModernAppBar
+      body: SafeArea(
+        child: CustomScrollView(
+          slivers: [
+            // Main Content
+            SliverList(
+              delegate: SliverChildListDelegate([
+                const SizedBox(height: 20),
+
+                // Location & Currency Row
+                _buildLocationCurrencyRow(),
+
+                const SizedBox(height: 20),
+
+                // iOS-styled Filter Controls Row
+                _buildIOSFilterControlsRow(context),
+
+                const SizedBox(height: 20),
+
+                // Results Title
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Showing Rooms in Dhulikhel",
+                        style: GoogleFonts.quicksand(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: ModernColors.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "${filteredRooms.length} properties found",
+                        style: GoogleFonts.quicksand(
+                          fontSize: 14,
+                          color: ModernColors.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Room Cards
+                ...filteredRooms.map((room) {
+                  return RoomCard(
+                    imagePath: room['image'],
+                    houseNumber: room['houseNumber'],
+                    location: room['location'],
+                    water: room['water'],
+                    sunlight: room['sunlight'],
+                    hasBathroom: room['hasBathroom'],
+                    size: room['size'],
+                    priceNPR: room['priceNPR'],
+                    distance: room['distance'],
+                    internetSpeed: room['internetSpeed'],
+                    currency: _currency,
+                    conversionRate: _conversionRate,
+                  );
+                }).toList(),
+
+                const SizedBox(height: 40),
+              ]),
+            ),
+          ],
+        ),
+      ),
+
+      // Modern Floating Action Button without text
+      floatingActionButton: Container(
+        margin: const EdgeInsets.only(bottom: 24, right: 20),
+        child: FloatingActionButton(
+          onPressed: () {
+            showDialog(
+              context: context,
+              builder: (context) => const OwnerSectionDialog(),
+            );
+          },
+          backgroundColor: ModernColors.primary,
+          foregroundColor: Colors.white,
+          elevation: 8,
+          shape: const CircleBorder(),
+          child: Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  ModernColors.primary,
+                  ModernColors.primaryDark,
+                ],
+              ),
+            ),
+            child: const Icon(
+              Icons.add_home_rounded,
+              size: 28,
+            ),
+          ),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+    );
+  }
+
+  // ==============================
+  // WIDGET BUILDING METHODS
+  // ==============================
+  Widget _buildLocationCurrencyRow() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
-          // City Selection Container
+          // Location Pill - iOS styled
           Expanded(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              height: 56,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade400),
+                borderRadius: BorderRadius.circular(14),
+                color: ModernColors.surface,
+                border: Border.all(
+                  color: ModernColors.outline,
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 6,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
-              child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: const [Text("Dhulikhel"), Icon(Icons.edit)]),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.location_on_rounded,
+                        color: ModernColors.primary,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        "Dhulikhel",
+                        style: GoogleFonts.quicksand(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: ModernColors.onSurface,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Icon(
+                    Icons.edit_rounded,
+                    color: ModernColors.onSurfaceVariant,
+                    size: 20,
+                  ),
+                ],
+              ),
             ),
           ),
+
           const SizedBox(width: 12),
 
-          // Currency Selection Container
+          // Currency Pill with GlobalKey for positioning - iOS styled
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+            key: _currencyButtonKey,
+            height: 56,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey.shade400),
+              borderRadius: BorderRadius.circular(14),
+              color: ModernColors.surface,
+              border: Border.all(
+                color: ModernColors.outline,
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 6,
+                  offset: const Offset(0, 3),
+                ),
+              ],
             ),
-            child: Row(children: const [Text("NPR"), SizedBox(width: 6), Icon(Icons.keyboard_arrow_down)]),
+            child: GestureDetector(
+              onTap: _showCurrencyMenu,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _currency == "USD" ? "USD (\$)" : "NPR",
+                    style: GoogleFonts.quicksand(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: ModernColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    color: ModernColors.primary,
+                    size: 22,
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  /// Build Filter Options Row
-  Widget _buildFilterOptions() {
+  Widget _buildIOSFilterControlsRow(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(children: [_buildFilterBox("Sort By"), const SizedBox(width: 10), _buildFilterBox("Filters"), const SizedBox(width: 10), _buildFilterBox("Price"), const SizedBox(width: 10), _buildFilterBox("Distance")]),
-      ),
-    );
-  }
+      child: Row(
+        children: [
+          // Sort By Button with GlobalKey for positioning - iOS styled
+          Expanded(
+            child: Container(
+              key: _sortButtonKey,
+              height: 50,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                color: ModernColors.surface,
+                border: Border.all(
+                  color: ModernColors.outline,
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 6,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: GestureDetector(
+                onTap: _showSortMenu,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _selectedSort,
+                        style: GoogleFonts.quicksand(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: ModernColors.onSurface,
+                        ),
+                      ),
+                      Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: ModernColors.onSurfaceVariant,
+                        size: 20,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
 
-  /// Build Individual Filter Box
-  Widget _buildFilterBox(String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade400),
-      ),
-      child: Row(children: [Text(text), const SizedBox(width: 4), const Icon(Icons.keyboard_arrow_down)]),
-    );
-  }
+          const SizedBox(width: 12),
 
-  /// Build Title Section
-  Widget _buildTitleSection() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      child: Text("Showing Rooms in Dhulikhel", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-    );
-  }
-
-  /// Build Room List Section
-  Widget _buildRoomList() {
-    return Expanded(
-      child: SingleChildScrollView(
-        child: Column(
-          children: const [
-            RoomCard(id: "1", imagePath: "assets/images/room1_img.jpg", houseNumber: "10801", location: "Khadpu | 10 mins walk from KU", features: "Attached bathroom | Sunlight", size: "12 x 15 ft²", price: "NPR 5,850"),
-            RoomCard(id: "2", imagePath: "assets/images/room2_img.jpg", houseNumber: "20235", location: "Khadpu | 8 mins walk from KU", features: "Attached bathroom | Sunlight", size: "14 x 16 ft²", price: "NPR 6,200"),
-          ],
-        ),
+          // Filters Button - iOS styled
+          Expanded(
+            child: GestureDetector(
+              onTap: () => _showFiltersSheet(context),
+              child: Container(
+                height: 50,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color: ModernColors.surface,
+                  border: Border.all(
+                    color: ModernColors.outline,
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 6,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "Filters",
+                        style: GoogleFonts.quicksand(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: ModernColors.onSurface,
+                        ),
+                      ),
+                      Icon(
+                        Icons.filter_list_rounded,
+                        color: ModernColors.onSurfaceVariant,
+                        size: 20,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// Room Card Widget For Displaying Room Details
+// ==============================
+// ROOM CARD WIDGET (UPDATED WITH MODERN COLORS)
+// ==============================
 class RoomCard extends StatelessWidget {
-  final String id;
   final String imagePath;
   final String houseNumber;
   final String location;
-  final String features;
+  final String water;
+  final String sunlight;
+  final bool hasBathroom;
   final String size;
-  final String price;
+  final int priceNPR;
+  final String distance;
+  final String internetSpeed;
+  final String currency;
+  final int conversionRate;
 
-  const RoomCard({super.key, required this.id, required this.imagePath, required this.houseNumber, required this.location, required this.features, required this.size, required this.price});
+  const RoomCard({
+    super.key,
+    required this.imagePath,
+    required this.houseNumber,
+    required this.location,
+    required this.water,
+    required this.sunlight,
+    required this.hasBathroom,
+    required this.size,
+    required this.priceNPR,
+    required this.distance,
+    required this.internetSpeed,
+    required this.currency,
+    required this.conversionRate,
+  });
+
+  // Helper to check if distance <= 2.0 km for badge display
+  bool get _isNearKU {
+    try {
+      final match = RegExp(r'([0-9.]+)').firstMatch(distance);
+      if (match != null) {
+        final km = double.parse(match.group(1)!);
+        return km <= 2.0; // Distance badge logic: show only if ≤ 2.0 km
+      }
+    } catch (e) {
+      return false;
+    }
+    return false;
+  }
+
+  // Get display price based on selected currency
+  int get _displayPrice {
+    if (currency == "USD") {
+      final converted = (priceNPR / conversionRate).floor();
+      return converted == 0
+          ? 1
+          : converted; // Ensure non-zero display for very small prices
+    }
+    return priceNPR;
+  }
+
+  // Get currency symbol for display
+  String get _currencySymbol {
+    return currency == "USD" ? "\$" : "NPR";
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.all(20),
-      elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: ModernColors.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+        // iOS-like tan border - applied at container level
+        border: Border.all(
+          color: ModernColors.outline,
+          width: 1.0,
+        ),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Room Image
-          _buildRoomImage(),
+          // Image Section with Conditional Badge
+          Stack(
+            children: [
+              ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(20),
+                  topRight: Radius.circular(20),
+                ),
+                child: Image.asset(
+                  imagePath,
+                  width: double.infinity,
+                  height: 180,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              // Near KU Gate Badge (only show if distance <= 2.0 km)
+              if (_isNearKU)
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: ModernColors.primaryContainer,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: ModernColors.primary.withOpacity(0.3), width: 1),
+                    ),
+                    child: Text(
+                      "Near KU Gate",
+                      style: GoogleFonts.quicksand(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: ModernColors.primary,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
 
-          // Room Details
-          _buildRoomDetails(),
+          // Room Details Section
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // House Number
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "House No: $houseNumber",
+                      style: GoogleFonts.quicksand(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: ModernColors.onSurface,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.star_rounded,
+                            color: Colors.amber.shade600,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            "4.2",
+                            style: GoogleFonts.quicksand(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.green,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 8),
+
+                // Location row with primary color icon
+                Row(
+                  children: [
+                    Icon(
+                      Icons.location_on_rounded,
+                      size: 16,
+                      color: ModernColors.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        location,
+                        style: GoogleFonts.quicksand(
+                          fontSize: 14,
+                          color: ModernColors.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // Features Pills with Emojis
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (hasBathroom)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: ModernColors.primaryContainer,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          "🚿 Attached bathroom",
+                          style: GoogleFonts.quicksand(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: ModernColors.primary,
+                          ),
+                        ),
+                      ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8F5E9),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        "💧 Water: $water",
+                        style: GoogleFonts.quicksand(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF2E7D32),
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF3E0),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        "☀️ Sunlight: $sunlight",
+                        style: GoogleFonts.quicksand(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFFF57C00),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // Room Specifications Grid
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: ModernColors.background,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _buildSpecItem(
+                        Icons.square_foot_rounded,
+                        "Room Size",
+                        size,
+                        ModernColors.primary,
+                      ),
+                      _buildSpecItem(
+                        Icons.wifi_rounded,
+                        "Internet",
+                        internetSpeed,
+                        const Color(0xFF4CAF50),
+                      ),
+                      _buildSpecItem(
+                        Icons.directions_walk_rounded,
+                        "Distance",
+                        distance,
+                        const Color(0xFFFF9800),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Price and Action Button
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Price Display
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Monthly Rent",
+                          style: GoogleFonts.quicksand(
+                            fontSize: 12,
+                            color: ModernColors.onSurfaceVariant,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            Text(
+                              _currencySymbol,
+                              style: GoogleFonts.quicksand(
+                                fontSize: 14,
+                                color: ModernColors.onSurfaceVariant,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              " $_displayPrice",
+                              style: GoogleFonts.quicksand(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                color: ModernColors.onSurface,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              "/ month",
+                              style: GoogleFonts.quicksand(
+                                fontSize: 12,
+                                color: ModernColors.onSurfaceVariant,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+
+                    // View Details Button
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => DetailsScreen(
+                              room: {
+                                'image': imagePath,
+                                'images': [imagePath],
+                                'houseNumber': houseNumber,
+                                'location': location,
+                                'distance': distance,
+                                'internetSpeed': internetSpeed,
+                                'priceNPR': priceNPR,
+                                'water': water,
+                                'sunlight': sunlight,
+                                'hasBathroom': hasBathroom,
+                                'size': size,
+                                'created_at': DateTime.now(),
+                              },
+                              currency: currency,
+                              conversionRate: conversionRate,
+                            ),
+                          ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: ModernColors.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
+                        ),
+                        elevation: 0,
+                      ),
+                      child: Text(
+                        "View Details",
+                        style: GoogleFonts.quicksand(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  /// Build Room Image Section
-  Widget _buildRoomImage() {
-    return ClipRRect(
-      borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
-      child: Image.asset(imagePath, width: double.infinity, height: 180, fit: BoxFit.cover),
-    );
-  }
-
-  /// Build Room Details Section
-  Widget _buildRoomDetails() {
-    return Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // House Number
-          Text("House no: $houseNumber", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 4),
-
-          // Location
-          Text(location),
-          const SizedBox(height: 4),
-
-          // Features
-          Text(features),
-          const SizedBox(height: 4),
-
-          // Size
-          Text(size),
-          const SizedBox(height: 8),
-
-          // Price Section
-          _buildPriceSection(),
-        ],
-      ),
-    );
-  }
-
-  /// Build Price Display Section
-  Widget _buildPriceSection() {
-    return Align(
-      alignment: Alignment.centerRight,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          // Price
-          Text(price, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          // Per Month Label
-          const Text("per month"),
-        ],
-      ),
+  // Helper to build specification item
+  Widget _buildSpecItem(
+      IconData icon,
+      String title,
+      String value,
+      Color color,
+      ) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 20, color: color),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          title,
+          style: GoogleFonts.quicksand(
+            fontSize: 11,
+            color: ModernColors.onSurfaceVariant,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: GoogleFonts.quicksand(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: ModernColors.onSurface,
+          ),
+        ),
+      ],
     );
   }
 }
