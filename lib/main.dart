@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'homescreen.dart';
 
 void main() {
-  runApp(const RoomRentalApp());
+  runApp(const SmartRoomRentalApp());
 }
 
-class RoomRentalApp extends StatelessWidget {
-  const RoomRentalApp({super.key});
+class SmartRoomRentalApp extends StatelessWidget {
+  const SmartRoomRentalApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -159,18 +160,15 @@ class RoomListingScreen extends StatelessWidget {
             const SizedBox(height: 10),
 
             // -------------------------------------------
-            // 4. TITLE TEXT (Left-Aligned)
+            // 4. TITLE TEXT
             // -------------------------------------------
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-              child: Align(
-                alignment: Alignment.centerLeft, // Left-align the text
-                child: Text(
-                  "Showing Rooms in Dhulikhel",
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+              child: Text(
+                "Showing Rooms in Dhulikhel",
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
