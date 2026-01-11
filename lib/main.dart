@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:smart_room/screens/home/splash_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'; // Import Supabase
+import 'package:permission_handler/permission_handler.dart'; // Import Permission Handler
 
 import 'controllers/auth_controller.dart';
 import 'controllers/loader_controller.dart';
@@ -28,6 +29,9 @@ Future<void> main() async {
     debug: false, // Set to true for debugging in development
   );
 
+  /// Initialize Permission Handler
+  await _initializePermissionHandler();
+
   /// Set Transparent Status Bar With Dark Icons (Black Icons)
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -40,6 +44,35 @@ Future<void> main() async {
   );
 
   runApp(const MyApp());
+}
+
+/// Initialize Permission Handler and request necessary permissions
+Future<void> _initializePermissionHandler() async {
+  try {
+    // Request location permissions if needed (for location picker)
+    await Permission.location.request();
+
+    // Request storage permissions for image picking (if needed)
+    if (await Permission.storage.isDenied) {
+      await Permission.storage.request();
+    }
+
+    // Request camera permissions (if your app uses camera)
+    if (await Permission.camera.isDenied) {
+      await Permission.camera.request();
+    }
+
+    // Request notification permissions (if your app uses notifications)
+    if (await Permission.notification.isDenied) {
+      await Permission.notification.request();
+    }
+
+    // You can add more permissions based on your app's needs
+
+    debugPrint('Permission Handler initialized successfully');
+  } catch (e) {
+    debugPrint('Error initializing Permission Handler: $e');
+  }
 }
 
 /// Root Application Widget
@@ -75,8 +108,61 @@ class AppBindings extends Bindings {
     Get.lazyPut(() => AuthService(), fenix: true);
     Get.lazyPut(() => ToastService(), fenix: true);
 
+    // Register Permission Handler Service (optional - if you want to manage permissions via GetX)
+    Get.lazyPut(() => PermissionHandlerService(), fenix: true);
+
     // Get Supabase client instance (optional - if you want to access it via GetX)
     Get.lazyPut(() => Supabase.instance.client, fenix: true);
+  }
+}
+
+/// Permission Handler Service (Optional - for managing permissions via GetX)
+class PermissionHandlerService extends GetxService {
+  /// Check if location permission is granted
+  Future<bool> get isLocationGranted async {
+    final status = await Permission.location.status;
+    return status.isGranted;
+  }
+
+  /// Request location permission
+  Future<PermissionStatus> requestLocationPermission() async {
+    return await Permission.location.request();
+  }
+
+  /// Check if storage permission is granted
+  Future<bool> get isStorageGranted async {
+    final status = await Permission.storage.status;
+    return status.isGranted;
+  }
+
+  /// Request storage permission
+  Future<PermissionStatus> requestStoragePermission() async {
+    return await Permission.storage.request();
+  }
+
+  /// Check if camera permission is granted
+  Future<bool> get isCameraGranted async {
+    final status = await Permission.camera.status;
+    return status.isGranted;
+  }
+
+  /// Request camera permission
+  Future<PermissionStatus> requestCameraPermission() async {
+    return await Permission.camera.request();
+  }
+
+  /// Open app settings for manual permission enabling
+  Future<void> openAppSettings() async {
+    await openAppSettings();
+  }
+
+  /// Check all required permissions at once
+  Future<Map<String, bool>> checkAllPermissions() async {
+    return {
+      'location': await Permission.location.isGranted,
+      'storage': await Permission.storage.isGranted,
+      'camera': await Permission.camera.isGranted,
+    };
   }
 }
 
