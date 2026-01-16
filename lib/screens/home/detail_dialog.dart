@@ -1,808 +1,1130 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:shimmer/shimmer.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
-/*
-INTEGRATION GUIDE:
-To use this screen from HomeScreen/RoomCard, modify the View Details button's onPressed:
-onPressed: () {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => DetailsScreen(
-        room: {
-          'image': imagePath,
-          'images': [imagePath], // Provide list of images if available
-          'houseNumber': houseNumber,
-          'location': location,
-          'distance': distance,
-          'internetSpeed': internetSpeed,
-          'priceNPR': priceNPR,
-          'water': water,
-          'sunlight': sunlight,
-          'hasBathroom': hasBathroom,
-          'created_at': DateTime.now(),
-        },
-        currency: currency,
-        conversionRate: conversionRate,
-      ),
-    ),
-  );
-}
-*/
-
-/*
-DEVELOPER NOTES:
-This file contains the Room Details Screen for Smart Room Rental App.
-Expected Supabase fields for full integration:
-- 'image' (primary image URL)
-- 'images' (List<String> of image URLs)
-- 'houseNumber', 'location', 'distance', 'internetSpeed'
-- 'priceNPR' (numeric), 'water', 'sunlight', 'hasBathroom' (boolean)
-- 'description' (optional, string for room description)
-- 'created_at' (DateTime)
-*/
-
-class DetailsScreen extends StatefulWidget {
+class RoomDetailsBottomSheet extends StatefulWidget {
   final Map<String, dynamic> room;
-  final String currency;
-  final int conversionRate;
 
-  const DetailsScreen({
+  const RoomDetailsBottomSheet({
     super.key,
     required this.room,
-    required this.currency,
-    required this.conversionRate,
   });
 
   @override
-  State<DetailsScreen> createState() => _DetailsScreenState();
+  State<RoomDetailsBottomSheet> createState() => _RoomDetailsBottomSheetState();
 }
 
-class _DetailsScreenState extends State<DetailsScreen> {
-  // PageController for full-screen image viewer swiping
-  late PageController _pageController;
-  int _currentImageIndex = 0;
+class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _fadeAnimation;
+  int _selectedImageIndex = 0;
+  bool _isViewingFullImage = false;
 
-  // Get list of images from room data, defaulting to single image if not provided
   List<String> get _images {
-    if (widget.room['images'] is List<String>) {
-      return widget.room['images'] as List<String>;
-    } else if (widget.room['images'] is List<dynamic>) {
-      return (widget.room['images'] as List<dynamic>)
-          .map((e) => e.toString())
-          .toList();
+    final imagesData = widget.room['images'];
+    if (imagesData is List) {
+      return imagesData.whereType<String>().toList();
     }
-    // Fallback to single image if no list provided
-    return [widget.room['image']];
+    return [];
   }
 
-  // Calculate display price based on selected currency (same logic as HomeScreen)
-  int get _displayPrice {
-    final priceNPR = widget.room['priceNPR'] ?? 0;
-    if (widget.currency == "USD") {
-      final converted = (priceNPR / widget.conversionRate).floor();
-      return converted == 0 ? 1 : converted;
+  bool get _isNearKU {
+    try {
+      final distance = widget.room['distance']?.toString() ?? "0.0";
+      final match = RegExp(r'([0-9.]+)').firstMatch(distance);
+      if (match != null) {
+        final km = double.parse(match.group(1)!);
+        return km <= 2.0;
+      }
+    } catch (e) {
+      return false;
     }
-    return priceNPR;
+    return false;
   }
 
-  // Get currency symbol for display
-  String get _currencySymbol {
-    return widget.currency == "USD" ? "\$" : "NPR";
-  }
-
-  // Generate formatted price with thousand separators
-  String get _formattedPrice {
-    return _displayPrice.toString().replaceAllMapped(
-      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-          (Match m) => '${m[1]},',
-    );
+  String _getFormattedDistance() {
+    final distance = widget.room['distance']?.toString() ?? "0.0";
+    if (!distance.toLowerCase().contains('km')) {
+      return '$distance km';
+    }
+    return distance;
   }
 
   @override
   void initState() {
     super.initState();
-    // Initialize PageController for full-screen image viewer
-    _pageController = PageController(initialPage: _currentImageIndex);
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+
+    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeOutBack,
+      ),
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeOut,
+      ),
+    );
+
+    _controller.forward();
   }
 
   @override
   void dispose() {
-    _pageController.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
-  // Open full-screen image viewer at specified index
-  void _openFullScreenImageViewer(int initialIndex) {
-    setState(() {
-      _currentImageIndex = initialIndex;
-      _pageController = PageController(initialPage: initialIndex);
+  void _closeSheet() {
+    _controller.reverse().then((_) {
+      Navigator.pop(context);
     });
+  }
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => FullscreenImageViewer(
-          images: _images,
-          initialIndex: initialIndex,
-          pageController: _pageController,
-          onIndexChanged: (index) {
-            setState(() {
-              _currentImageIndex = index;
-            });
-          },
-        ),
-      ),
-    );
+  void _viewFullImage(int index) {
+    setState(() {
+      _selectedImageIndex = index;
+      _isViewingFullImage = true;
+    });
+  }
+
+  void _closeImageViewer() {
+    setState(() {
+      _isViewingFullImage = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        // White background with subtle elevation
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-        leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back_rounded,
-            color: const Color(0xFF1E6FF6), // Primary blue color
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 360;
+    final isTablet = screenWidth > 600;
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Opacity(
+          opacity: _fadeAnimation.value,
+          child: Transform.scale(
+            scale: _scaleAnimation.value,
+            child: child,
           ),
-          onPressed: () => Navigator.pop(context),
+        );
+      },
+      child: GestureDetector(
+        onTap: _closeSheet,
+        child: Container(
+          color: Colors.black.withOpacity(0.4),
+          child: GestureDetector(
+            onTap: () {}, // Prevent closing when tapping on content
+            child: DraggableScrollableSheet(
+              initialChildSize: isTablet ? 0.75 : 0.85,
+              minChildSize: 0.5,
+              maxChildSize: 0.95,
+              snap: true,
+              snapSizes: [isTablet ? 0.75 : 0.85],
+              builder: (context, scrollController) {
+                return Container(
+                  decoration: BoxDecoration(
+                    color: ModernColors.background,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(20),
+                      topRight: Radius.circular(20),
+                    ),
+                  ),
+                  child: Stack(
+                    children: [
+                      _buildContent(scrollController, isSmallScreen, isTablet),
+                      if (_isViewingFullImage)
+                        _buildFullImageViewer(isSmallScreen, isTablet),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
         ),
-        title: Text(
-          "Room Details",
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: const Color(0xFF1E6FF6), // Consistent with HomeScreen
-          ),
-        ),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.share_rounded, color: const Color(0xFF1E6FF6)),
-            onPressed: () {
-              // Share functionality placeholder
-              // TODO: Implement share functionality when integrating
-            },
-          ),
-        ],
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Main scrollable content
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
+    );
+  }
+
+  Widget _buildContent(ScrollController scrollController, bool isSmallScreen, bool isTablet) {
+    final room = widget.room;
+    final images = _images;
+
+    // Data extraction with fallbacks
+    final title = room['roomName']?.toString() ?? "Unnamed Room";
+    final walkTime = room['walkTime']?.toString() ?? "0 min";
+    final location = "$walkTime walk from KU Gate";
+    final water = room['water']?.toString() ?? "Available";
+    final sunlight = room['sunlight']?.toString() ?? "Good";
+    final hasBathroom = room['bathroom']?.toString() == "Yes" || room['bathroom'] == true;
+    final size = "${room['size']?.toString() ?? '0'} Sq Ft";
+    final priceNPR = room['price'] is int ? room['price'] as int : int.tryParse(room['price']?.toString() ?? '0') ?? 0;
+    final distance = _getFormattedDistance();
+    final internetSpeed = "${room['internet']?.toString() ?? '0'} Mbps";
+    final fullLocation = room['location']?.toString() ?? "Location not specified";
+    final latitude = room['latitude'];
+    final longitude = room['longitude'];
+
+    return CustomScrollView(
+      controller: scrollController,
+      physics: const BouncingScrollPhysics(),
+      slivers: [
+        // Header with drag handle
+        SliverToBoxAdapter(
+          child: _buildHeader(isSmallScreen, isTablet),
+        ),
+
+        // Main Image
+        SliverToBoxAdapter(
+          child: _buildMainImageSection(images, isSmallScreen, isTablet),
+        ),
+
+        // Thumbnails Row - Centered
+        if (images.length > 1)
+          SliverToBoxAdapter(
+            child: _buildThumbnailsSection(images, isSmallScreen, isTablet),
+          ),
+
+        // Main Room Card with everything
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+              vertical: isTablet ? 20 : 16,
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                color: ModernColors.surface,
+                borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.06),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+                border: Border.all(
+                  color: ModernColors.outline.withOpacity(0.15),
+                  width: 1.0,
+                ),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(isTablet ? 20 : (isSmallScreen ? 12 : 16)),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Hero Image Section
-                    _buildHeroImageSection(),
-
-                    // Thumbnail Row
-                    _buildThumbnailRow(),
-
-                    // Room Details Section
-                    _buildRoomDetailsSection(),
-
-                    // Amenities Section
-                    _buildAmenitiesSection(),
-
-                    // Description Section
-                    _buildDescriptionSection(),
-
-                    // Spacing for bottom buttons
-                    const SizedBox(height: 100),
-                  ],
-                ),
-              ),
-            ),
-
-            // Fixed Bottom Action Bar
-            _buildBottomActionBar(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ==============================
-  // WIDGET BUILDING METHODS
-  // ==============================
-
-  // Hero Image Section (large main image)
-  Widget _buildHeroImageSection() {
-    return GestureDetector(
-      onTap: () => _openFullScreenImageViewer(0),
-      child: Hero(
-        tag: 'room_${widget.room['houseNumber']}',
-        child: Container(
-          width: double.infinity,
-          height: 250, // Aspect ratio ~16:9
-          decoration: BoxDecoration(
-            borderRadius: const BorderRadius.only(
-              bottomLeft: Radius.circular(20),
-              bottomRight: Radius.circular(20),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.shade300,
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: const BorderRadius.only(
-              bottomLeft: Radius.circular(20),
-              bottomRight: Radius.circular(20),
-            ),
-            child: Image.asset(
-              widget.room['image'] ?? 'assets/images/room1_img.jpg',
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  color: const Color(0xFFF5F5F5),
-                  child: const Center(
-                    child: Icon(
-                      Icons.home_work_rounded,
-                      size: 60,
-                      color: Color(0xFFCCCCCC),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Thumbnail Row (horizontal scrollable)
-  Widget _buildThumbnailRow() {
-    final images = _images;
-    final totalImages = images.length;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // Thumbnail 1 (always show at least one)
-          _buildThumbnail(0),
-
-          if (totalImages > 1) ...[
-            const SizedBox(width: 12),
-            _buildThumbnail(1),
-          ],
-
-          if (totalImages > 2) ...[
-            const SizedBox(width: 12),
-            _buildThumbnail(2),
-          ],
-
-          // If more than 3 images, show +N overlay on last thumbnail
-          if (totalImages > 3) ...[
-            const SizedBox(width: 12),
-            _buildMoreImagesThumbnail(totalImages - 3),
-          ] else if (totalImages == 0)
-
-          // Fallback if no images at all
-            const SizedBox(),
-        ],
-      ),
-    );
-  }
-
-  // Individual Thumbnail Widget
-  Widget _buildThumbnail(int index) {
-    final images = _images;
-    if (index >= images.length) return const SizedBox();
-
-    return GestureDetector(
-      onTap: () {
-        // Animate scale on tap
-        _openFullScreenImageViewer(index);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-        transform: Matrix4.identity(),
-        child: Container(
-          width: 80,
-          height: 80,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: const Color(0xFF1E6FF6).withOpacity(0.3),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.shade200,
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.asset(
-              images[index],
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  color: const Color(0xFFF5F5F5),
-                  child: const Center(
-                    child: Icon(
-                      Icons.photo_rounded,
-                      size: 24,
-                      color: Color(0xFFCCCCCC),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // +N More Images Thumbnail
-  Widget _buildMoreImagesThumbnail(int additionalCount) {
-    return GestureDetector(
-      onTap: () => _openFullScreenImageViewer(2), // Start from 3rd image
-      child: Container(
-        width: 80,
-        height: 80,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: const Color(0xFF1E6FF6).withOpacity(0.8),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                "+$additionalCount",
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-              ),
-              const Text(
-                "More",
-                style: TextStyle(fontSize: 12, color: Colors.white),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Room Details Section
-  Widget _buildRoomDetailsSection() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // House Number Heading
-          Text(
-            "House No: ${widget.room['houseNumber'] ?? 'N/A'}",
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF1E3A8A),
-            ),
-          ),
-
-          const SizedBox(height: 12),
-
-          // Location Row with red icon
-          Row(
-            children: [
-              Icon(
-                Icons.location_on_rounded,
-                size: 20,
-                color: Colors.red.shade700, // Red icon only
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  widget.room['location'] ?? 'Location not specified',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey.shade800, // Normal text color
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 8),
-
-          // Distance and Internet Speed Row
-          Row(
-            children: [
-              Icon(
-                Icons.directions_walk_rounded,
-                size: 16,
-                color: Colors.grey.shade600,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                widget.room['distance'] ?? 'Distance not specified',
-                style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-              ),
-              const SizedBox(width: 20),
-              Icon(Icons.wifi_rounded, size: 16, color: Colors.grey.shade600),
-              const SizedBox(width: 4),
-              Text(
-                widget.room['internetSpeed'] ?? 'Speed not specified',
-                style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 20),
-
-          // Price Display with perfect baseline alignment
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              color: const Color(0xFFF8FAFF),
-              border: Border.all(
-                color: const Color(0xFF1E6FF6).withOpacity(0.2),
-                width: 1.5,
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      "Monthly Rent",
-                      style: TextStyle(fontSize: 14, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 4),
-                    // Baseline aligned price row (same as HomeScreen)
+                    // Room Title and Available Button Row
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Room Title
+                              Text(
+                                title,
+                                style: GoogleFonts.quicksand(
+                                  fontSize: isTablet ? 20 : (isSmallScreen ? 15 : 17),
+                                  fontWeight: FontWeight.w800,
+                                  color: ModernColors.onSurface,
+                                  height: 1.2,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+
+                              SizedBox(height: isTablet ? 8 : (isSmallScreen ? 6 : 6)),
+
+                              // Location with RED icon
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.location_on_rounded,
+                                    size: isTablet ? 16 : (isSmallScreen ? 13 : 15),
+                                    color: Colors.red,
+                                  ),
+                                  SizedBox(width: isTablet ? 8 : (isSmallScreen ? 4 : 6)),
+                                  Expanded(
+                                    child: Text(
+                                      location,
+                                      style: GoogleFonts.quicksand(
+                                        fontSize: isTablet ? 14 : (isSmallScreen ? 12 : 13),
+                                        color: ModernColors.onSurfaceVariant,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        SizedBox(width: isTablet ? 16 : (isSmallScreen ? 8 : 10)),
+
+                        // Available Status Button (Pink Gradient)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Color(0xFFFF6B6B), // Coral red
+                                Color(0xFFFF5252), // Bright red
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFFFF5252).withOpacity(0.3),
+                                blurRadius: 5,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            "Available",
+                            style: GoogleFonts.quicksand(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    SizedBox(height: isTablet ? 20 : (isSmallScreen ? 12 : 14)),
+
+                    // Room Specifications Grid
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        vertical: isTablet ? 16 : (isSmallScreen ? 12 : 12),
+                        horizontal: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: ModernColors.background.withOpacity(0.6),
+                        borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 8 : 10)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _buildCompactSpecItem(
+                            Icons.square_foot_rounded,
+                            "Size",
+                            size,
+                            ModernColors.primary,
+                            isSmallScreen,
+                            isTablet,
+                          ),
+                          Container(
+                            height: isTablet ? 32 : (isSmallScreen ? 24 : 28),
+                            width: 1,
+                            color: ModernColors.outline.withOpacity(0.3),
+                          ),
+                          _buildCompactSpecItem(
+                            Icons.wifi_rounded,
+                            "Internet",
+                            internetSpeed,
+                            const Color(0xFF4CAF50),
+                            isSmallScreen,
+                            isTablet,
+                          ),
+                          Container(
+                            height: isTablet ? 32 : (isSmallScreen ? 24 : 28),
+                            width: 1,
+                            color: ModernColors.outline.withOpacity(0.3),
+                          ),
+                          _buildCompactSpecItem(
+                            Icons.directions_walk_rounded,
+                            "Distance",
+                            distance,
+                            const Color(0xFFFF9800),
+                            isSmallScreen,
+                            isTablet,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Monthly Rent Section with Compare Button
+                    Padding(
+                      padding: EdgeInsets.only(
+                        top: isTablet ? 20 : (isSmallScreen ? 16 : 18),
+                        bottom: isTablet ? 16 : (isSmallScreen ? 12 : 14),
+                      ),
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isTablet ? 16 : (isSmallScreen ? 12 : 14),
+                          vertical: isTablet ? 10 : (isSmallScreen ? 8 : 10),
+                        ),
+                        decoration: BoxDecoration(
+                          color: ModernColors.surface,
+                          borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
+                          border: Border.all(
+                            color: ModernColors.outline.withOpacity(0.4),
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // Monthly Rent Details
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  "Monthly Rent",
+                                  style: GoogleFonts.quicksand(
+                                    fontSize: isTablet ? 13 : (isSmallScreen ? 11 : 12),
+                                    fontWeight: FontWeight.w700,
+                                    color: ModernColors.onSurfaceVariant,
+                                  ),
+                                ),
+                                SizedBox(height: isTablet ? 4 : (isSmallScreen ? 2 : 3)),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                                  textBaseline: TextBaseline.alphabetic,
+                                  children: [
+                                    Text(
+                                      "NPR",
+                                      style: GoogleFonts.quicksand(
+                                        fontSize: isTablet ? 13 : (isSmallScreen ? 11 : 12),
+                                        color: ModernColors.onSurfaceVariant.withOpacity(0.8),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    SizedBox(width: isTablet ? 6 : (isSmallScreen ? 3 : 4)),
+                                    Text(
+                                      " $priceNPR",
+                                      style: GoogleFonts.quicksand(
+                                        fontSize: isTablet ? 22 : (isSmallScreen ? 18 : 20),
+                                        fontWeight: FontWeight.w800,
+                                        color: ModernColors.onSurface, // Black color
+                                      ),
+                                    ),
+                                    SizedBox(width: isTablet ? 6 : (isSmallScreen ? 3 : 4)),
+                                    Text(
+                                      "/month",
+                                      style: GoogleFonts.quicksand(
+                                        fontSize: isTablet ? 13 : (isSmallScreen ? 11 : 12),
+                                        color: ModernColors.onSurfaceVariant.withOpacity(0.8),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+
+                            // Compare Button (Green Gradient)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Color(0xFF4CAF50), // Green
+                                    Color(0xFF2E7D32), // Dark Green
+                                  ],
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF4CAF50).withOpacity(0.3),
+                                    blurRadius: 5,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Text(
+                                "Compare",
+                                style: GoogleFonts.quicksand(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // Divider before Additional Amenities
+                    Padding(
+                      padding: EdgeInsets.symmetric(vertical: isTablet ? 16 : (isSmallScreen ? 12 : 14)),
+                      child: Divider(
+                        height: 1,
+                        color: ModernColors.outline.withOpacity(0.3),
+                      ),
+                    ),
+
+                    // Additional Amenities
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _currencySymbol,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey,
+                          "Additional Amenities",
+                          style: GoogleFonts.quicksand(
+                            fontSize: isTablet ? 18 : (isSmallScreen ? 14 : 16),
+                            fontWeight: FontWeight.w700,
+                            color: ModernColors.onSurface,
                           ),
                         ),
-                        const SizedBox(width: 2),
-                        Text(
-                          " $_formattedPrice",
-                          style: const TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF1E3A8A),
+                        SizedBox(height: isTablet ? 16 : (isSmallScreen ? 10 : 12)),
+
+                        // First Row: Water & Sunlight
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // Water Pill
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isTablet ? 14 : (isSmallScreen ? 10 : 10),
+                                vertical: isTablet ? 8 : (isSmallScreen ? 5 : 5),
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE8F5E9),
+                                borderRadius: BorderRadius.circular(isTablet ? 18 : 16),
+                              ),
+                              child: Text(
+                                "💧 Water: $water",
+                                style: GoogleFonts.quicksand(
+                                  fontSize: isTablet ? 14 : (isSmallScreen ? 11 : 11),
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFF2E7D32),
+                                ),
+                              ),
+                            ),
+
+                            // Sunlight Pill
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isTablet ? 14 : (isSmallScreen ? 10 : 10),
+                                vertical: isTablet ? 8 : (isSmallScreen ? 5 : 5),
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF3E0),
+                                borderRadius: BorderRadius.circular(isTablet ? 18 : 16),
+                              ),
+                              child: Text(
+                                "☀️ Sunlight: $sunlight",
+                                style: GoogleFonts.quicksand(
+                                  fontSize: isTablet ? 14 : (isSmallScreen ? 11 : 11),
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFFF57C00),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        SizedBox(height: isTablet ? 12 : (isSmallScreen ? 8 : 10)),
+
+                        // Second Row: Bathroom & Windows
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // Bathroom Pill
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isTablet ? 14 : (isSmallScreen ? 10 : 10),
+                                vertical: isTablet ? 8 : (isSmallScreen ? 5 : 5),
+                              ),
+                              decoration: BoxDecoration(
+                                color: hasBathroom ?
+                                const Color(0xFFE3F2FD) : // Light blue for attached
+                                const Color(0xFFF5F5F5), // Light grey for shared
+                                borderRadius: BorderRadius.circular(isTablet ? 18 : 16),
+                              ),
+                              child: Text(
+                                hasBathroom ? "🚽 Bathroom: Attached" : "🚽 Bathroom: Shared",
+                                style: GoogleFonts.quicksand(
+                                  fontSize: isTablet ? 14 : (isSmallScreen ? 11 : 11),
+                                  fontWeight: FontWeight.w700,
+                                  color: hasBathroom ?
+                                  const Color(0xFF2196F3) : // Blue for attached
+                                  const Color(0xFF757575), // Grey for shared
+                                ),
+                              ),
+                            ),
+
+                            // Windows Pill
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isTablet ? 14 : (isSmallScreen ? 10 : 10),
+                                vertical: isTablet ? 8 : (isSmallScreen ? 5 : 5),
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF3E5F5),
+                                borderRadius: BorderRadius.circular(isTablet ? 18 : 16),
+                              ),
+                              child: Text(
+                                "🪟 Windows: 5",
+                                style: GoogleFonts.quicksand(
+                                  fontSize: isTablet ? 14 : (isSmallScreen ? 11 : 11),
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFF9C27B0),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        SizedBox(height: isTablet ? 20 : (isSmallScreen ? 12 : 16)),
+
+                        // Amenity Windows (Laundry, Wi-Fi, Parking, Security, Cleaning)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            _buildAmenityWindow(
+                              Icons.local_laundry_service_rounded,
+                              "Laundry",
+                              const Color(0xFF9C27B0),
+                              isSmallScreen,
+                              isTablet,
+                            ),
+                            _buildAmenityWindow(
+                              Icons.wifi_rounded,
+                              "Wi-Fi",
+                              const Color(0xFF2196F3),
+                              isSmallScreen,
+                              isTablet,
+                            ),
+                            _buildAmenityWindow(
+                              Icons.local_parking_rounded,
+                              "Parking",
+                              const Color(0xFF795548),
+                              isSmallScreen,
+                              isTablet,
+                            ),
+                            if (!isSmallScreen) ...[
+                              _buildAmenityWindow(
+                                Icons.security_rounded,
+                                "Security",
+                                const Color(0xFFF44336),
+                                isSmallScreen,
+                                isTablet,
+                              ),
+                              _buildAmenityWindow(
+                                Icons.cleaning_services_rounded,
+                                "Cleaning",
+                                const Color(0xFFFF9800),
+                                isSmallScreen,
+                                isTablet,
+                              ),
+                            ],
+                          ],
+                        ),
+
+                        // For small screens, show the last 2 windows in a second row
+                        if (isSmallScreen) ...[
+                          SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _buildAmenityWindow(
+                                Icons.security_rounded,
+                                "Security",
+                                const Color(0xFFF44336),
+                                isSmallScreen,
+                                isTablet,
+                              ),
+                              SizedBox(width: 20),
+                              _buildAmenityWindow(
+                                Icons.cleaning_services_rounded,
+                                "Cleaning",
+                                const Color(0xFFFF9800),
+                                isSmallScreen,
+                                isTablet,
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Text(
-                          "/ month",
-                          style: TextStyle(fontSize: 14, color: Colors.grey),
-                        ),
+                        ],
                       ],
                     ),
                   ],
                 ),
-                // Rating badge (static for now)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.green.shade100, width: 1),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.star_rounded,
-                        color: Colors.amber.shade600,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        "4.2/5.0",
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.green.shade800,
-                        ),
-                      ),
-                    ],
+              ),
+            ),
+          ),
+        ),
+
+        // Location Details Section (Separate Card)
+        SliverToBoxAdapter(
+          child: _buildLocationSection(
+            fullLocation: fullLocation,
+            latitude: latitude,
+            longitude: longitude,
+            isSmallScreen: isSmallScreen,
+            isTablet: isTablet,
+          ),
+        ),
+
+        // Action Buttons - Chat and Book with Gradients
+        SliverToBoxAdapter(
+          child: _buildActionButtons(isSmallScreen, isTablet),
+        ),
+
+        // Bottom spacing
+        SliverToBoxAdapter(
+          child: SizedBox(height: isTablet ? 20 : (isSmallScreen ? 15 : 20)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeader(bool isSmallScreen, bool isTablet) {
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+        vertical: isTablet ? 20 : 16,
+      ),
+      child: Column(
+        children: [
+          // Drag handle
+          Container(
+            width: isTablet ? 50 : 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          SizedBox(height: isTablet ? 16 : (isSmallScreen ? 8 : 12)),
+          // Center aligned title
+          Center(
+            child: Text(
+              "Room Details",
+              style: GoogleFonts.quicksand(
+                fontSize: isTablet ? 24 : (isSmallScreen ? 18 : 20),
+                fontWeight: FontWeight.w800,
+                color: ModernColors.onSurface,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMainImageSection(List<String> images, bool isSmallScreen, bool isTablet) {
+    if (images.isEmpty) {
+      return Padding(
+        padding: EdgeInsets.symmetric(horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20)),
+        child: Container(
+          height: isTablet ? 250 : (isSmallScreen ? 180 : 200),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.photo_library_rounded,
+                  size: isTablet ? 50 : 40,
+                  color: Colors.grey.shade400,
+                ),
+                SizedBox(height: isTablet ? 12 : 8),
+                Text(
+                  "No Images Available",
+                  style: GoogleFonts.quicksand(
+                    fontSize: isTablet ? 16 : (isSmallScreen ? 13 : 14),
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade500,
                   ),
                 ),
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      );
+    }
 
-  // Amenities Section with Emoji Pills
-  Widget _buildAmenitiesSection() {
-    // Core amenities from room data
-    final List<Map<String, dynamic>> coreAmenities = [
-      if (widget.room['hasBathroom'] == true)
-        {
-          'emoji': '🚿',
-          'label': 'Attached bathroom',
-          'color': const Color(0xFFE3F2FD),
-          'textColor': const Color(0xFF1565C0),
-        },
-      {
-        'emoji': '💧',
-        'label': 'Water: ${widget.room['water'] ?? 'N/A'}',
-        'color': const Color(0xFFE8F5E9),
-        'textColor': const Color(0xFF2E7D32),
-      },
-      {
-        'emoji': '☀️',
-        'label': 'Sunlight: ${widget.room['sunlight'] ?? 'N/A'}',
-        'color': const Color(0xFFFFF3E0),
-        'textColor': const Color(0xFFF57C00),
-      },
-    ];
-
-    // Additional synthesized amenities (common in rental rooms)
-    final List<Map<String, dynamic>> additionalAmenities = [
-      {
-        'emoji': '📶',
-        'label': 'Wi-Fi',
-        'color': const Color(0xFFE3F2FD),
-        'textColor': const Color(0xFF1565C0),
-      },
-      {
-        'emoji': '🔥',
-        'label': 'Water heater',
-        'color': const Color(0xFFFFF3E0),
-        'textColor': const Color(0xFFF57C00),
-      },
-      {
-        'emoji': '⚡',
-        'label': 'Power backup',
-        'color': const Color(0xFFE8F5E9),
-        'textColor': const Color(0xFF2E7D32),
-      },
-      {
-        'emoji': '🅿️',
-        'label': 'Parking',
-        'color': const Color(0xFFF3E5F5),
-        'textColor': const Color(0xFF7B1FA2),
-      },
-      {
-        'emoji': '🔒',
-        'label': 'Security',
-        'color': const Color(0xFFE0F2F1),
-        'textColor': const Color(0xFF00796B),
-      },
-      {
-        'emoji': '🧹',
-        'label': 'Cleaning service',
-        'color': const Color(0xFFFFF8E1),
-        'textColor': const Color(0xFFF57C00),
-      },
-    ];
-
-    final allAmenities = [...coreAmenities, ...additionalAmenities];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Amenities",
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF1E3A8A),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: allAmenities.map((amenity) {
-              return Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: amenity['color'],
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: (amenity['textColor'] as Color).withOpacity(0.3),
-                    width: 1,
+    return Stack(
+      children: [
+        GestureDetector(
+          onTap: () => _viewFullImage(0),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20)),
+            child: Container(
+              height: isTablet ? 250 : (isSmallScreen ? 180 : 200),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
                   ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+                child: Stack(
                   children: [
-                    Text(
-                      amenity['emoji']!,
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      amenity['label']!,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: amenity['textColor'] as Color,
+                    CachedNetworkImage(
+                      imageUrl: images[0],
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      placeholder: (context, url) => Container(
+                        color: Colors.grey.shade100,
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        color: Colors.grey.shade100,
+                        child: Center(
+                          child: Icon(
+                            Icons.photo_library_rounded,
+                            size: isTablet ? 50 : 40,
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
                       ),
                     ),
-                  ],
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Description Section
-  Widget _buildDescriptionSection() {
-    // Generate description based on room data if not provided
-    String description =
-        widget.room['description'] ??
-            "Cozy ${widget.room['size'] ?? 'room'} located near KU with ${widget.room['sunlight']?.toString().toLowerCase() ?? 'good'} sunlight and ${widget.room['water']?.toString().toLowerCase() ?? '24/7'} water availability. Perfect for students seeking comfortable living near Kathmandu University.";
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Description",
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF1E3A8A),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            description,
-            style: TextStyle(
-              fontSize: 16,
-              height: 1.5,
-              color: Colors.grey.shade800,
-            ),
-            textAlign: TextAlign.justify,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Bottom Action Bar (Chat and Pay buttons)
-  Widget _buildBottomActionBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey.shade300, width: 1)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.shade200,
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: Row(
-          children: [
-            // Chat Button (outlined style)
-            Expanded(
-              flex: 4,
-              child: ElevatedButton(
-                onPressed: () {
-                  // TODO: Implement chat functionality when integrating
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(
-                    0xFFEAF4FF,
-                  ), // Light blue background
-                  foregroundColor: const Color(0xFF1E6FF6), // Blue text/icon
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(
-                      color: Color(0xFF1E6FF6),
-                      width: 1.5,
-                    ),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    Icon(Icons.chat_rounded, size: 20),
-                    SizedBox(width: 8),
-                    Text(
-                      "Chat",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+                    Positioned(
+                      top: isTablet ? 16 : 10,
+                      right: isTablet ? 16 : 10,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isTablet ? 14 : (isSmallScreen ? 10 : 12),
+                          vertical: isTablet ? 8 : (isSmallScreen ? 5 : 6),
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          borderRadius: BorderRadius.circular(isTablet ? 14 : (isSmallScreen ? 10 : 12)),
+                        ),
+                        child: Text(
+                          "${images.length} photos",
+                          style: GoogleFonts.quicksand(
+                            fontSize: isTablet ? 14 : (isSmallScreen ? 11 : 12),
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
             ),
+          ),
+        ),
 
-            const SizedBox(width: 12),
-
-            // Pay with eSewa Button (filled style)
-            Expanded(
-              flex: 6,
-              child: ElevatedButton(
-                onPressed: () {
-                  // TODO: Implement eSewa payment when integrating
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1E6FF6), // Blue background
-                  foregroundColor: Colors.white, // White text/icon
-                  elevation: 4,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+        // Near KU Gate Badge (if applicable)
+        if (_isNearKU)
+          Positioned(
+            top: isTablet ? 16 : 10,
+            left: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 5,
+              ),
+              decoration: BoxDecoration(
+                color: ModernColors.primary.withOpacity(0.95),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 3,
+                    offset: const Offset(0, 2),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ],
+              ),
+              child: Text(
+                "Near KU Gate",
+                style: GoogleFonts.quicksand(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildThumbnailsSection(List<String> images, bool isSmallScreen, bool isTablet) {
+    final itemWidth = isTablet ? 80.0 : (isSmallScreen ? 60.0 : 70.0);
+    final itemHeight = isTablet ? 80.0 : (isSmallScreen ? 60.0 : 70.0);
+    final borderRadius = isTablet ? 14.0 : (isSmallScreen ? 10.0 : 12.0);
+
+    return Padding(
+      padding: EdgeInsets.only(
+        top: isTablet ? 20 : (isSmallScreen ? 12 : 16),
+        left: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+        right: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+      ),
+      child: SizedBox(
+        height: itemHeight,
+        child: Center(
+          child: images.length <= 3
+              ? _buildCenteredThumbnails(images, itemWidth, itemHeight, borderRadius, isSmallScreen, isTablet)
+              : _buildScrollableThumbnails(images, itemWidth, itemHeight, borderRadius, isSmallScreen, isTablet),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCenteredThumbnails(
+      List<String> images,
+      double itemWidth,
+      double itemHeight,
+      double borderRadius,
+      bool isSmallScreen,
+      bool isTablet,
+      ) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: images.asMap().entries.map((entry) {
+        final index = entry.key;
+        final imageUrl = entry.value;
+        return GestureDetector(
+          onTap: () => _viewFullImage(index),
+          child: Padding(
+            padding: EdgeInsets.only(
+              right: index < images.length - 1 ? (isTablet ? 12 : (isSmallScreen ? 8 : 10)) : 0,
+            ),
+            child: Container(
+              width: itemWidth,
+              height: itemHeight,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(borderRadius),
+                border: Border.all(
+                  color: ModernColors.outline.withOpacity(0.3),
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 6,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(borderRadius),
+                child: CachedNetworkImage(
+                  imageUrl: imageUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    color: Colors.grey.shade100,
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    color: Colors.grey.shade100,
+                    child: Icon(
+                      Icons.broken_image_rounded,
+                      size: isTablet ? 30 : 24,
+                      color: Colors.grey.shade400,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildScrollableThumbnails(
+      List<String> images,
+      double itemWidth,
+      double itemHeight,
+      double borderRadius,
+      bool isSmallScreen,
+      bool isTablet,
+      ) {
+    return ListView.builder(
+      scrollDirection: Axis.horizontal,
+      itemCount: images.length,
+      itemBuilder: (context, index) {
+        return GestureDetector(
+          onTap: () => _viewFullImage(index),
+          child: Padding(
+            padding: EdgeInsets.only(
+              right: index < images.length - 1 ? (isTablet ? 12 : (isSmallScreen ? 8 : 10)) : 0,
+              left: index == 0 ? (isTablet ? 12 : (isSmallScreen ? 8 : 10)) : 0,
+            ),
+            child: Container(
+              width: itemWidth,
+              height: itemHeight,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(borderRadius),
+                border: Border.all(
+                  color: ModernColors.outline.withOpacity(0.3),
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 6,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(borderRadius),
+                child: CachedNetworkImage(
+                  imageUrl: images[index],
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    color: Colors.grey.shade100,
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    color: Colors.grey.shade100,
+                    child: Icon(
+                      Icons.broken_image_rounded,
+                      size: isTablet ? 30 : 24,
+                      color: Colors.grey.shade400,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFullImageViewer(bool isSmallScreen, bool isTablet) {
+    final images = _images;
+
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black.withOpacity(0.95),
+        child: Column(
+          children: [
+            // Header
+            SafeArea(
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+                  vertical: isTablet ? 20 : 16,
                 ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // eSewa logo placeholder
-                    Container(
-                      width: 24,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(4),
-                        image: const DecorationImage(
-                          image: AssetImage('assets/images/esewa_logo.png'),
-                          fit: BoxFit.cover,
+                    GestureDetector(
+                      onTap: _closeImageViewer,
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.close_rounded,
+                          size: 22,
+                          color: Colors.white,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      "Pay with eSewa",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+                    Text(
+                      "${_selectedImageIndex + 1}/${images.length}",
+                      style: GoogleFonts.quicksand(
+                        fontSize: isTablet ? 18 : (isSmallScreen ? 15 : 16),
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
                       ),
                     ),
+                    SizedBox(width: 40), // For symmetry
                   ],
+                ),
+              ),
+            ),
+
+            // Image Viewer
+            Expanded(
+              child: PageView.builder(
+                itemCount: images.length,
+                controller: PageController(initialPage: _selectedImageIndex),
+                onPageChanged: (index) {
+                  setState(() {
+                    _selectedImageIndex = index;
+                  });
+                },
+                itemBuilder: (context, index) {
+                  return InteractiveViewer(
+                    maxScale: 3.0,
+                    child: Padding(
+                      padding: EdgeInsets.all(isTablet ? 24 : (isSmallScreen ? 16 : 20)),
+                      child: CachedNetworkImage(
+                        imageUrl: images[index],
+                        fit: BoxFit.contain,
+                        placeholder: (context, url) => Container(
+                          color: Colors.grey.shade800,
+                        ),
+                        errorWidget: (context, url, error) => Container(
+                          color: Colors.grey.shade800,
+                          child: Center(
+                            child: Icon(
+                              Icons.broken_image_rounded,
+                              size: isTablet ? 50 : 40,
+                              color: Colors.grey.shade400,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            // Thumbnails at bottom
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: isTablet ? 24 : 20,
+                  left: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+                  right: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+                ),
+                child: SizedBox(
+                  height: isTablet ? 70 : (isSmallScreen ? 50 : 60),
+                  child: Center(
+                    child: images.length <= 3
+                        ? _buildCenteredBottomThumbnails(images, isSmallScreen, isTablet)
+                        : _buildScrollableBottomThumbnails(images, isSmallScreen, isTablet),
+                  ),
                 ),
               ),
             ),
@@ -811,140 +1133,425 @@ class _DetailsScreenState extends State<DetailsScreen> {
       ),
     );
   }
-}
 
-// ==============================
-// FULL-SCREEN IMAGE VIEWER WIDGET
-// ==============================
-class FullscreenImageViewer extends StatefulWidget {
-  final List<String> images;
-  final int initialIndex;
-  final PageController pageController;
-  final Function(int) onIndexChanged;
+  Widget _buildCenteredBottomThumbnails(List<String> images, bool isSmallScreen, bool isTablet) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: images.asMap().entries.map((entry) {
+        final index = entry.key;
+        final imageUrl = entry.value;
+        final thumbnailSize = isTablet ? 65.0 : (isSmallScreen ? 45.0 : 55.0);
 
-  const FullscreenImageViewer({
-    super.key,
-    required this.images,
-    required this.initialIndex,
-    required this.pageController,
-    required this.onIndexChanged,
-  });
-
-  @override
-  State<FullscreenImageViewer> createState() => _FullscreenImageViewerState();
-}
-
-class _FullscreenImageViewerState extends State<FullscreenImageViewer> {
-  int _currentPage = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _currentPage = widget.initialIndex;
-    widget.pageController.addListener(_pageListener);
-  }
-
-  @override
-  void dispose() {
-    widget.pageController.removeListener(_pageListener);
-    super.dispose();
-  }
-
-  void _pageListener() {
-    if (widget.pageController.page?.round() != _currentPage) {
-      setState(() {
-        _currentPage = widget.pageController.page?.round() ?? _currentPage;
-      });
-      widget.onIndexChanged(_currentPage);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          // Horizontal PageView for swiping images
-          PageView.builder(
-            controller: widget.pageController,
-            itemCount: widget.images.length,
-            onPageChanged: (index) {
-              setState(() {
-                _currentPage = index;
-              });
-              widget.onIndexChanged(index);
-            },
-            itemBuilder: (context, index) {
-              return GestureDetector(
-                onTap: () {
-                  // Close on image tap (alternative to X button)
-                  Navigator.pop(context);
-                },
-                child: Center(
-                  child: Image.asset(
-                    widget.images[index],
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        color: Colors.black,
-                        child: const Center(
-                          child: Icon(
-                            Icons.broken_image_rounded,
-                            size: 60,
-                            color: Colors.white54,
-                          ),
-                        ),
-                      );
-                    },
+        return GestureDetector(
+          onTap: () {
+            setState(() {
+              _selectedImageIndex = index;
+            });
+          },
+          child: Padding(
+            padding: EdgeInsets.only(right: index < images.length - 1 ? 10 : 0),
+            child: Container(
+              width: thumbnailSize,
+              height: thumbnailSize,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: _selectedImageIndex == index
+                      ? ModernColors.primary
+                      : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: CachedNetworkImage(
+                  imageUrl: imageUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    color: Colors.grey.shade800,
                   ),
                 ),
-              );
-            },
-          ),
-
-          // Page Indicator (top-center)
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 20,
-            left: 0,
-            right: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.5),
-                borderRadius: BorderRadius.circular(20),
               ),
-              child: Text(
-                "${_currentPage + 1} / ${widget.images.length}",
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.white,
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildScrollableBottomThumbnails(List<String> images, bool isSmallScreen, bool isTablet) {
+    return ListView.builder(
+      scrollDirection: Axis.horizontal,
+      itemCount: images.length,
+      itemBuilder: (context, index) {
+        final thumbnailSize = isTablet ? 65.0 : (isSmallScreen ? 45.0 : 55.0);
+        return GestureDetector(
+          onTap: () {
+            setState(() {
+              _selectedImageIndex = index;
+            });
+          },
+          child: Padding(
+            padding: EdgeInsets.only(right: index < images.length - 1 ? 10 : 0),
+            child: Container(
+              width: thumbnailSize,
+              height: thumbnailSize,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: _selectedImageIndex == index
+                      ? ModernColors.primary
+                      : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: CachedNetworkImage(
+                  imageUrl: images[index],
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    color: Colors.grey.shade800,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCompactSpecItem(
+      IconData icon,
+      String title,
+      String value,
+      Color color,
+      bool isSmallScreen,
+      bool isTablet,
+      ) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          icon,
+          size: isTablet ? 26 : (isSmallScreen ? 18 : 20),
+          color: color,
+        ),
+        SizedBox(height: isTablet ? 8 : (isSmallScreen ? 4 : 6)),
+        Text(
+          title,
+          style: GoogleFonts.quicksand(
+            fontSize: isTablet ? 14 : (isSmallScreen ? 10 : 11),
+            color: ModernColors.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        SizedBox(height: isTablet ? 4 : (isSmallScreen ? 2 : 3)),
+        Text(
+          value,
+          style: GoogleFonts.quicksand(
+            fontSize: isTablet ? 16 : (isSmallScreen ? 11 : 12),
+            fontWeight: FontWeight.w800,
+            color: ModernColors.onSurface.withOpacity(0.8),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAmenityWindow(IconData icon, String label, Color color, bool isSmallScreen, bool isTablet) {
+    final size = isTablet ? 60.0 : (isSmallScreen ? 40.0 : 45.0);
+    return Column(
+      children: [
+        Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(isTablet ? 14 : (isSmallScreen ? 8 : 10)),
+            border: Border.all(
+              color: color.withOpacity(0.2),
+              width: 1.5,
+            ),
+          ),
+          child: Icon(
+            icon,
+            size: isTablet ? 28 : (isSmallScreen ? 18 : 20),
+            color: color,
+          ),
+        ),
+        SizedBox(height: isTablet ? 8 : (isSmallScreen ? 4 : 6)),
+        Text(
+          label,
+          style: GoogleFonts.quicksand(
+            fontSize: isTablet ? 13 : (isSmallScreen ? 9 : 10),
+            fontWeight: FontWeight.w700,
+            color: ModernColors.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLocationSection({
+    required String fullLocation,
+    required dynamic latitude,
+    required dynamic longitude,
+    required bool isSmallScreen,
+    required bool isTablet,
+  }) {
+    final hasCoordinates = latitude != null && longitude != null;
+
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+        vertical: isTablet ? 12 : 8,
+      ),
+      child: Container(
+        padding: EdgeInsets.all(isTablet ? 24 : (isSmallScreen ? 16 : 20)),
+        decoration: BoxDecoration(
+          color: ModernColors.surface,
+          borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+          border: Border.all(
+            color: ModernColors.outline.withOpacity(0.15),
+            width: 1.0,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.location_on_rounded,
+                  size: isTablet ? 22 : (isSmallScreen ? 18 : 20),
+                  color: Colors.red,
+                ),
+                SizedBox(width: isTablet ? 10 : (isSmallScreen ? 6 : 8)),
+                Text(
+                  "Location Details",
+                  style: GoogleFonts.quicksand(
+                    fontSize: isTablet ? 22 : (isSmallScreen ? 16 : 18),
+                    fontWeight: FontWeight.w800,
+                    color: ModernColors.onSurface,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: isTablet ? 16 : (isSmallScreen ? 8 : 12)),
+            Text(
+              fullLocation,
+              style: GoogleFonts.quicksand(
+                fontSize: isTablet ? 18 : (isSmallScreen ? 13 : 15),
+                color: ModernColors.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+              ),
+            ),
+
+            if (hasCoordinates) ...[
+              SizedBox(height: isTablet ? 20 : (isSmallScreen ? 12 : 16)),
+              Container(
+                height: isTablet ? 180 : (isSmallScreen ? 120 : 150),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(isTablet ? 14 : (isSmallScreen ? 10 : 12)),
+                  color: ModernColors.background,
+                  border: Border.all(
+                    color: ModernColors.outline.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.map_rounded,
+                        size: isTablet ? 50 : (isSmallScreen ? 32 : 40),
+                        color: ModernColors.primary,
+                      ),
+                      SizedBox(height: isTablet ? 12 : (isSmallScreen ? 6 : 8)),
+                      Text(
+                        "Map View Available",
+                        style: GoogleFonts.quicksand(
+                          fontSize: isTablet ? 18 : (isSmallScreen ? 13 : 14),
+                          fontWeight: FontWeight.w700,
+                          color: ModernColors.onSurfaceVariant,
+                        ),
+                      ),
+                      Text(
+                        "(Lat: ${latitude.toStringAsFixed(4)}, Lng: ${longitude.toStringAsFixed(4)})",
+                        style: GoogleFonts.quicksand(
+                          fontSize: isTablet ? 14 : (isSmallScreen ? 10 : 12),
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+
+            SizedBox(height: isTablet ? 20 : (isSmallScreen ? 12 : 16)),
+            SizedBox(
+              width: double.infinity,
+              height: isTablet ? 56 : (isSmallScreen ? 42 : 48),
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  // TODO: Open in Maps
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: ModernColors.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(isTablet ? 14 : (isSmallScreen ? 10 : 12)),
+                  ),
+                  elevation: 0,
+                ),
+                icon: Icon(
+                  Icons.directions_rounded,
+                  size: isTablet ? 22 : 18,
+                ),
+                label: Text(
+                  "Get Directions",
+                  style: GoogleFonts.quicksand(
+                    fontSize: isTablet ? 18 : (isSmallScreen ? 14 : 15),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionButtons(bool isSmallScreen, bool isTablet) {
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+        vertical: isTablet ? 16 : (isSmallScreen ? 12 : 16),
+      ),
+      child: Row(
+        children: [
+          // Chat Button with Purple Gradient
+          Expanded(
+            child: Container(
+              height: isTablet ? 50 : (isSmallScreen ? 40 : 44),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFF9C27B0), // Purple
+                    Color(0xFF7B1FA2), // Dark Purple
+                  ],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF9C27B0).withOpacity(0.3),
+                    blurRadius: 6,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: ElevatedButton(
+                onPressed: () {
+                  // TODO: Implement chat
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
+                  ),
+                  elevation: 0,
+                  padding: EdgeInsets.zero,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.chat_bubble_rounded,
+                      size: isTablet ? 20 : (isSmallScreen ? 16 : 18),
+                    ),
+                    SizedBox(width: isTablet ? 8 : (isSmallScreen ? 4 : 6)),
+                    Text(
+                      "Chat",
+                      style: GoogleFonts.quicksand(
+                        fontSize: isTablet ? 16 : (isSmallScreen ? 13 : 14),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
 
-          // Close Button (top-right)
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 16,
-            right: 16,
-            child: GestureDetector(
-              onTap: () => Navigator.pop(context),
-              child: Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.5),
-                  shape: BoxShape.circle,
+          SizedBox(width: isTablet ? 12 : (isSmallScreen ? 8 : 10)),
+
+          // Book Button with Dark Blue Gradient
+          Expanded(
+            child: Container(
+              height: isTablet ? 50 : (isSmallScreen ? 40 : 44),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFF1565C0), // Dark Blue
+                    Color(0xFF0D47A1), // Darker Blue
+                  ],
                 ),
-                child: const Center(
-                  child: Icon(
-                    Icons.close_rounded,
-                    size: 24,
-                    color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF1565C0).withOpacity(0.3),
+                    blurRadius: 6,
+                    offset: const Offset(0, 3),
                   ),
+                ],
+              ),
+              child: ElevatedButton(
+                onPressed: () {
+                  // TODO: Implement booking
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
+                  ),
+                  elevation: 0,
+                  padding: EdgeInsets.zero,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.bookmark_rounded,
+                      size: isTablet ? 20 : (isSmallScreen ? 16 : 18),
+                    ),
+                    SizedBox(width: isTablet ? 8 : (isSmallScreen ? 4 : 6)),
+                    Text(
+                      "Book",
+                      style: GoogleFonts.quicksand(
+                        fontSize: isTablet ? 16 : (isSmallScreen ? 13 : 14),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -953,4 +1560,19 @@ class _FullscreenImageViewerState extends State<FullscreenImageViewer> {
       ),
     );
   }
+}
+
+// Modern Colors Palette (same as your card)
+class ModernColors {
+  static const Color primary = Color(0xFF007AFF);
+  static const Color primaryDark = Color(0xFF0056CC);
+  static const Color primaryContainer = Color(0xFFE3F2FD);
+
+  static const Color surface = Colors.white;
+  static const Color background = Color(0xFFF2F2F7);
+
+  static const Color onSurface = Color(0xFF1C1C1E);
+  static const Color onSurfaceVariant = Color(0xFF8E8E93);
+
+  static const Color outline = Color(0xFFC7C7CC);
 }

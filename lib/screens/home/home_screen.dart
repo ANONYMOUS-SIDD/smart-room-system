@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shimmer/shimmer.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../widgets/modern_app_bar.dart';
 import 'detail_dialog.dart';
@@ -20,96 +23,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _bathroomFilter = false;
   String _waterFilter = "Any";
 
-  // ==============================
-  // SAMPLE ROOM DATA
-  // ==============================
-  final List<Map<String, dynamic>> _rooms = [
-    {
-      "image": "assets/images/room1_img.jpg",
-      "houseNumber": "10801",
-      "title": "Modern Cozy Room",
-      "location": "10 mins walk from KU Gate",
-      "features": "Attached bathroom | Good Sunlight | 24/7 Water",
-      "size": "120 Sq Ft",
-      "priceNPR": 5850,
-      "distance": "0.8 km",
-      "internetSpeed": "50 Mbps",
-      "created_at": DateTime(2024, 1, 10),
-      "water": "24/7 Available",
-      "sunlight": "Good",
-      "hasBathroom": true,
-      "status": "Available",
-    },
-    {
-      "image": "assets/images/room2_img.jpg",
-      "houseNumber": "20235",
-      "title": "Spacious Studio",
-      "location": "8 mins walk from KU Gate",
-      "features": "Attached bathroom | Moderate Sunlight | Available Water",
-      "size": "130 Sq Ft",
-      "priceNPR": 6200,
-      "distance": "0.6 km",
-      "internetSpeed": "75 Mbps",
-      "created_at": DateTime(2024, 1, 15),
-      "water": "Available",
-      "sunlight": "Moderate",
-      "hasBathroom": true,
-      "status": "Requested",
-    },
-    {
-      "image": "assets/images/room1_img.jpg",
-      "houseNumber": "30456",
-      "title": "Premium Room",
-      "location": "25 mins walk from KU Gate",
-      "features": "Shared bathroom | Poor Sunlight | Limited Water",
-      "size": "110 Sq Ft",
-      "priceNPR": 4500,
-      "distance": "2.3 km",
-      "internetSpeed": "30 Mbps",
-      "created_at": DateTime(2024, 1, 5),
-      "water": "Limited",
-      "sunlight": "Poor",
-      "hasBathroom": false,
-      "status": "Available",
-    },
-  ];
-
-  // Filter and sort rooms based on current filters and sort selection
-  List<Map<String, dynamic>> _getFilteredRooms() {
-    List<Map<String, dynamic>> filtered = List.from(_rooms);
-
-    // Apply bathroom filter
-    if (_bathroomFilter) {
-      filtered = filtered.where((room) => room['hasBathroom'] == true).toList();
-    }
-
-    // Apply water filter
-    if (_waterFilter != "Any") {
-      filtered = filtered.where((room) => room['water'] == _waterFilter).toList();
-    }
-
-    // Apply sorting
-    filtered.sort((a, b) {
-      switch (_selectedSort) {
-        case "Price":
-          return a['priceNPR'].compareTo(b['priceNPR']);
-        case "Distance":
-          final aDist = double.tryParse(a['distance'].replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0;
-          final bDist = double.tryParse(b['distance'].replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0;
-          return aDist.compareTo(bDist);
-        case "Recent":
-          return b['created_at'].compareTo(a['created_at']);
-        default:
-          return 0;
-      }
-    });
-
-    return filtered;
-  }
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   @override
   Widget build(BuildContext context) {
-    final filteredRooms = _getFilteredRooms();
     final screenWidth = MediaQuery.of(context).size.width;
     final isSmallScreen = screenWidth < 360;
 
@@ -126,79 +43,159 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       ),
       body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverList(
-              delegate: SliverChildListDelegate([
-                SizedBox(height: isSmallScreen ? 12 : 16),
+        child: StreamBuilder<QuerySnapshot>(
+          stream: _firestore
+              .collection('room')
+              .orderBy('createdAt', descending: true)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(child: Text('Error: ${snapshot.error}'));
+            }
 
-                // Compact iOS-like Container for Price & Filter
-                _buildCompactIOSFilterContainer(isSmallScreen),
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return _buildShimmerLoading(isSmallScreen);
+            }
 
-                SizedBox(height: isSmallScreen ? 16 : 20),
+            final rooms = snapshot.data!.docs;
+            final filteredRooms = _applyFiltersAndSort(rooms);
 
-                // Results Title with reduced gap to cards
-                Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isSmallScreen ? 16 : 20,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Showing Rooms in Dhulikhel",
-                        style: GoogleFonts.quicksand(
-                          fontSize: isSmallScreen ? 16 : 18,
-                          fontWeight: FontWeight.w700,
-                          color: ModernColors.onSurface,
-                        ),
+            return CustomScrollView(
+              slivers: [
+                SliverList(
+                  delegate: SliverChildListDelegate([
+                    SizedBox(height: isSmallScreen ? 12 : 16),
+
+                    // Compact iOS-like Container for Price & Filter
+                    _buildCompactIOSFilterContainer(isSmallScreen),
+
+                    SizedBox(height: isSmallScreen ? 16 : 20),
+
+                    // Results Title with reduced gap to cards
+                    Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isSmallScreen ? 16 : 20,
                       ),
-                      const SizedBox(height: 2), // Reduced from 4px to 2px
-                      Text(
-                        "${filteredRooms.length} properties found",
-                        style: GoogleFonts.quicksand(
-                          fontSize: isSmallScreen ? 13 : 14,
-                          color: ModernColors.onSurfaceVariant,
-                          fontWeight: FontWeight.w600, // Made bolder (was w500)
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Showing Rooms in Dhulikhel",
+                            style: GoogleFonts.quicksand(
+                              fontSize: isSmallScreen ? 16 : 18,
+                              fontWeight: FontWeight.w700,
+                              color: ModernColors.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            "${filteredRooms.length} properties found",
+                            style: GoogleFonts.quicksand(
+                              fontSize: isSmallScreen ? 13 : 14,
+                              color: ModernColors.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+
+                    SizedBox(height: isSmallScreen ? 1 : 16),
+
+                    // Room Cards from Firestore
+                    ...filteredRooms.map((roomDoc) {
+                      final room = roomDoc.data() as Map<String, dynamic>;
+                      return CompactRoomCardFromFirestore(
+                        room: room,
+                        isSmallScreen: isSmallScreen,
+                      );
+                    }).toList(),
+
+                    const SizedBox(height: 40),
+                  ]),
                 ),
-
-                SizedBox(height: isSmallScreen ? 10 : 16), // Reduced gap from 16/20 to 12/16
-
-                // Room Cards
-                ...filteredRooms.map((room) {
-                  return CompactRoomCard(
-                    imagePath: room['image'],
-                    title: room['title'],
-                    location: room['location'],
-                    water: room['water'],
-                    sunlight: room['sunlight'],
-                    hasBathroom: room['hasBathroom'],
-                    size: room['size'],
-                    priceNPR: room['priceNPR'],
-                    distance: room['distance'],
-                    internetSpeed: room['internetSpeed'],
-                    status: room['status'],
-                    isSmallScreen: isSmallScreen,
-                  );
-                }).toList(),
-
-                const SizedBox(height: 40),
-              ]),
-            ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
   }
 
+  List<DocumentSnapshot> _applyFiltersAndSort(List<DocumentSnapshot> rooms) {
+    List<DocumentSnapshot> filtered = List.from(rooms);
+
+    // Apply bathroom filter
+    if (_bathroomFilter) {
+      filtered = filtered.where((doc) {
+        final room = doc.data() as Map<String, dynamic>;
+        final bathroom = room['bathroom'];
+        return bathroom == "Yes" || bathroom == true;
+      }).toList();
+    }
+
+    // Apply water filter
+    if (_waterFilter != "Any") {
+      filtered = filtered.where((doc) {
+        final room = doc.data() as Map<String, dynamic>;
+        return room['water'] == _waterFilter;
+      }).toList();
+    }
+
+    // Apply sorting
+    filtered.sort((a, b) {
+      final roomA = a.data() as Map<String, dynamic>;
+      final roomB = b.data() as Map<String, dynamic>;
+
+      switch (_selectedSort) {
+        case "Price":
+          final priceA = roomA['price'] ?? 0;
+          final priceB = roomB['price'] ?? 0;
+          return (priceA as int).compareTo(priceB as int);
+        case "Distance":
+          final distA = _parseDistance(roomA['distance']);
+          final distB = _parseDistance(roomB['distance']);
+          return distA.compareTo(distB);
+        case "Recent":
+          final dateA = roomA['createdAt'] as Timestamp?;
+          final dateB = roomB['createdAt'] as Timestamp?;
+          if (dateA == null || dateB == null) return 0;
+          return dateB.compareTo(dateA);
+        default:
+          return 0;
+      }
+    });
+
+    return filtered;
+  }
+
+  double _parseDistance(dynamic distance) {
+    if (distance == null) return 0.0;
+
+    String distanceStr;
+    if (distance is String) {
+      distanceStr = distance;
+    } else if (distance is int || distance is double) {
+      return distance.toDouble();
+    } else {
+      return 0.0;
+    }
+
+    try {
+      final match = RegExp(r'([0-9.]+)').firstMatch(distanceStr);
+      if (match != null) {
+        return double.parse(match.group(1)!);
+      }
+    } catch (e) {
+      return 0.0;
+    }
+    return 0.0;
+  }
+
   Widget _buildCompactIOSFilterContainer(bool isSmallScreen) {
     return Container(
       margin: EdgeInsets.symmetric(horizontal: isSmallScreen ? 16 : 20),
-      padding: EdgeInsets.all(isSmallScreen ? 10 : 12), // Reduced padding for compactness
+      padding: EdgeInsets.all(isSmallScreen ? 10 : 12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(isSmallScreen ? 14 : 16),
         color: ModernColors.surface,
@@ -211,7 +208,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
         border: Border.all(
           color: ModernColors.outline.withOpacity(0.15),
-          width: 1.0, // Thinner border for iOS-like appearance
+          width: 1.0,
         ),
       ),
       child: Row(
@@ -219,18 +216,18 @@ class _HomeScreenState extends State<HomeScreen> {
           // Price Button with Dollar Icon in Container
           Expanded(
             child: Container(
-              height: isSmallScreen ? 40 : 44, // More compact height
+              height: isSmallScreen ? 40 : 44,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(isSmallScreen ? 10 : 12),
                 color: Colors.white,
                 border: Border.all(
-                  color: ModernColors.outline.withOpacity(0.4), // Thinner iOS-like border
-                  width: 1.0, // Thinner border
+                  color: ModernColors.outline.withOpacity(0.4),
+                  width: 1.0,
                 ),
               ),
               child: Padding(
                 padding: EdgeInsets.symmetric(
-                  horizontal: isSmallScreen ? 8 : 10, // Reduced horizontal padding
+                  horizontal: isSmallScreen ? 8 : 10,
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -239,23 +236,23 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         // Dollar Icon Container
                         Container(
-                          width: isSmallScreen ? 26 : 28, // Smaller container
+                          width: isSmallScreen ? 26 : 28,
                           height: isSmallScreen ? 26 : 28,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF007AFF).withOpacity(0.08), // Lighter background
+                            color: const Color(0xFF007AFF).withOpacity(0.08),
                             borderRadius: BorderRadius.circular(isSmallScreen ? 6 : 7),
                           ),
                           child: Icon(
                             Icons.attach_money_rounded,
-                            size: isSmallScreen ? 15 : 16, // Smaller icon
+                            size: isSmallScreen ? 15 : 16,
                             color: const Color(0xFF007AFF),
                           ),
                         ),
-                        SizedBox(width: isSmallScreen ? 6 : 8), // Reduced spacing
+                        SizedBox(width: isSmallScreen ? 6 : 8),
                         Text(
                           _selectedSort,
                           style: GoogleFonts.quicksand(
-                            fontSize: isSmallScreen ? 13 : 14, // Slightly smaller font
+                            fontSize: isSmallScreen ? 13 : 14,
                             fontWeight: FontWeight.w700,
                             color: ModernColors.onSurface,
                           ),
@@ -265,7 +262,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Icon(
                       Icons.keyboard_arrow_down_rounded,
                       color: ModernColors.onSurfaceVariant.withOpacity(0.7),
-                      size: isSmallScreen ? 18 : 20, // Smaller arrow
+                      size: isSmallScreen ? 18 : 20,
                     ),
                   ],
                 ),
@@ -273,7 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          SizedBox(width: isSmallScreen ? 6 : 8), // Reduced spacing between buttons
+          SizedBox(width: isSmallScreen ? 6 : 8),
 
           // Filters Button with Filter Icon in Container
           Expanded(
@@ -283,8 +280,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 borderRadius: BorderRadius.circular(isSmallScreen ? 10 : 12),
                 color: Colors.white,
                 border: Border.all(
-                  color: ModernColors.outline.withOpacity(0.4), // Thinner iOS-like border
-                  width: 1.0, // Thinner border
+                  color: ModernColors.outline.withOpacity(0.4),
+                  width: 1.0,
                 ),
               ),
               child: Padding(
@@ -301,7 +298,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           width: isSmallScreen ? 26 : 28,
                           height: isSmallScreen ? 26 : 28,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF4CAF50).withOpacity(0.08), // Lighter background
+                            color: const Color(0xFF4CAF50).withOpacity(0.08),
                             borderRadius: BorderRadius.circular(isSmallScreen ? 6 : 7),
                           ),
                           child: Icon(
@@ -335,43 +332,221 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  Widget _buildShimmerLoading(bool isSmallScreen) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey.shade300,
+      highlightColor: Colors.grey.shade100,
+      child: CustomScrollView(
+        slivers: [
+          SliverList(
+            delegate: SliverChildListDelegate([
+              SizedBox(height: isSmallScreen ? 12 : 16),
+              Container(
+                margin: EdgeInsets.symmetric(horizontal: isSmallScreen ? 16 : 20),
+                padding: EdgeInsets.all(isSmallScreen ? 10 : 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(isSmallScreen ? 14 : 16),
+                  color: Colors.white,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        height: isSmallScreen ? 40 : 44,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(isSmallScreen ? 10 : 12),
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: isSmallScreen ? 6 : 8),
+                    Expanded(
+                      child: Container(
+                        height: isSmallScreen ? 40 : 44,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(isSmallScreen ? 10 : 12),
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: isSmallScreen ? 16 : 20),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 16 : 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 200,
+                      height: 20,
+                      color: Colors.white,
+                    ),
+                    SizedBox(height: 2),
+                    Container(
+                      width: 150,
+                      height: 16,
+                      color: Colors.white,
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: isSmallScreen ? 1 : 16),
+              for (int i = 0; i < 3; i++)
+                Container(
+                  margin: EdgeInsets.symmetric(
+                    horizontal: isSmallScreen ? 16 : 20,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(isSmallScreen ? 16 : 20),
+                    color: Colors.white,
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        height: isSmallScreen ? 150 : 170,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.only(
+                            topLeft: Radius.circular(isSmallScreen ? 16 : 20),
+                            topRight: Radius.circular(isSmallScreen ? 16 : 20),
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Container(
+                                        width: 150,
+                                        height: 20,
+                                        color: Colors.white,
+                                      ),
+                                      SizedBox(height: 6),
+                                      Container(
+                                        width: 200,
+                                        height: 16,
+                                        color: Colors.white,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  width: 60,
+                                  height: 24,
+                                  color: Colors.white,
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: isSmallScreen ? 10 : 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Container(
+                                  width: 100,
+                                  height: 28,
+                                  color: Colors.white,
+                                ),
+                                Container(
+                                  width: 100,
+                                  height: 28,
+                                  color: Colors.white,
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: isSmallScreen ? 12 : 14),
+                            Container(
+                              padding: EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  for (int j = 0; j < 3; j++)
+                                    Container(
+                                      width: 80,
+                                      height: 60,
+                                      color: Colors.white,
+                                    ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(height: isSmallScreen ? 12 : 14),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      width: 80,
+                                      height: 14,
+                                      color: Colors.white,
+                                    ),
+                                    SizedBox(height: 2),
+                                    Container(
+                                      width: 120,
+                                      height: 24,
+                                      color: Colors.white,
+                                    ),
+                                  ],
+                                ),
+                                Container(
+                                  width: 100,
+                                  height: 34,
+                                  color: Colors.white,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              SizedBox(height: 40),
+            ]),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ==============================
-// COMPACT ROOM CARD WIDGET
+// COMPACT ROOM CARD FROM FIRESTORE
 // ==============================
-class CompactRoomCard extends StatelessWidget {
-  final String imagePath;
-  final String title;
-  final String location;
-  final String water;
-  final String sunlight;
-  final bool hasBathroom;
-  final String size;
-  final int priceNPR;
-  final String distance;
-  final String internetSpeed;
-  final String status;
+class CompactRoomCardFromFirestore extends StatefulWidget {
+  final Map<String, dynamic> room;
   final bool isSmallScreen;
 
-  const CompactRoomCard({
+  const CompactRoomCardFromFirestore({
     super.key,
-    required this.imagePath,
-    required this.title,
-    required this.location,
-    required this.water,
-    required this.sunlight,
-    required this.hasBathroom,
-    required this.size,
-    required this.priceNPR,
-    required this.distance,
-    required this.internetSpeed,
-    required this.status,
+    required this.room,
     required this.isSmallScreen,
   });
 
+  @override
+  State<CompactRoomCardFromFirestore> createState() => _CompactRoomCardFromFirestoreState();
+}
+
+class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirestore> {
+  bool _imageLoading = true;
+
   // Check if distance <= 2.0 km for badge display
   bool get _isNearKU {
+    final distance = _getFormattedDistance();
     try {
       final match = RegExp(r'([0-9.]+)').firstMatch(distance);
       if (match != null) {
@@ -384,15 +559,41 @@ class CompactRoomCard extends StatelessWidget {
     return false;
   }
 
+  String _getFormattedDistance() {
+    final distance = widget.room['distance']?.toString() ?? "0.0";
+    // If distance doesn't contain "km", add it
+    if (!distance.toLowerCase().contains('km')) {
+      return '$distance km';
+    }
+    return distance;
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Get image from Firestore
+    final images = (widget.room['images'] as List<dynamic>?)?.whereType<String>().toList() ?? [];
+    final mainImage = images.isNotEmpty ? images[0] : null;
+
+    // Get data from Firestore with proper fallbacks
+    final title = widget.room['roomName']?.toString() ?? "Unnamed Room";
+    final walkTime = widget.room['walkTime']?.toString() ?? "0 min";
+    final location = "$walkTime walk from KU Gate";
+    final water = widget.room['water']?.toString() ?? "Available";
+    final sunlight = widget.room['sunlight']?.toString() ?? "Good";
+    final hasBathroom = widget.room['bathroom']?.toString() == "Yes" || widget.room['bathroom'] == true;
+    final size = "${widget.room['size']?.toString() ?? '0'} Sq Ft";
+    final priceNPR = widget.room['price'] is int ? widget.room['price'] as int : int.tryParse(widget.room['price']?.toString() ?? '0') ?? 0;
+    final distance = _getFormattedDistance(); // Now properly formatted with "km"
+    final internetSpeed = "${widget.room['internet']?.toString() ?? '0'} Mbps";
+    final fullLocation = widget.room['location']?.toString() ?? "Location not specified";
+
     return Container(
       margin: EdgeInsets.symmetric(
-        horizontal: isSmallScreen ? 16 : 20,
+        horizontal: widget.isSmallScreen ? 16 : 20,
         vertical: 8,
       ),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(isSmallScreen ? 16 : 20),
+        borderRadius: BorderRadius.circular(widget.isSmallScreen ? 16 : 20),
         color: ModernColors.surface,
         boxShadow: [
           BoxShadow(
@@ -409,19 +610,29 @@ class CompactRoomCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Image Section
+          // Image Section with improved caching and shimmer
           Stack(
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(isSmallScreen ? 16 : 20),
-                  topRight: Radius.circular(isSmallScreen ? 16 : 20),
+                  topLeft: Radius.circular(widget.isSmallScreen ? 16 : 20),
+                  topRight: Radius.circular(widget.isSmallScreen ? 16 : 20),
                 ),
-                child: Image.asset(
-                  imagePath,
+                child: SizedBox(
                   width: double.infinity,
-                  height: isSmallScreen ? 150 : 170,
-                  fit: BoxFit.cover,
+                  height: widget.isSmallScreen ? 150 : 170,
+                  child: mainImage != null
+                      ? _buildCachedImageWithShimmer(mainImage)
+                      : Container(
+                    color: Colors.grey.shade200,
+                    child: Center(
+                      child: Icon(
+                        Icons.photo_library_rounded,
+                        color: Colors.grey.shade400,
+                        size: 40,
+                      ),
+                    ),
+                  ),
                 ),
               ),
               // Near KU Gate Badge
@@ -460,7 +671,7 @@ class CompactRoomCard extends StatelessWidget {
 
           // Room Details Section
           Padding(
-            padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+            padding: EdgeInsets.all(widget.isSmallScreen ? 12 : 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -474,9 +685,9 @@ class CompactRoomCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            title,
+                            title, // Room name from Firestore
                             style: GoogleFonts.quicksand(
-                              fontSize: isSmallScreen ? 15 : 17,
+                              fontSize: widget.isSmallScreen ? 15 : 17,
                               fontWeight: FontWeight.w800,
                               color: ModernColors.onSurface,
                               height: 1.2,
@@ -485,20 +696,20 @@ class CompactRoomCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 6),
-                          // Location with RED icon
+                          // Location with RED icon - walk time from Firestore
                           Row(
                             children: [
                               Icon(
                                 Icons.location_on_rounded,
-                                size: isSmallScreen ? 13 : 15,
+                                size: widget.isSmallScreen ? 13 : 15,
                                 color: Colors.red,
                               ),
-                              SizedBox(width: isSmallScreen ? 4 : 6),
+                              SizedBox(width: widget.isSmallScreen ? 4 : 6),
                               Expanded(
                                 child: Text(
-                                  location,
+                                  location, // Walk time from Firestore
                                   style: GoogleFonts.quicksand(
-                                    fontSize: isSmallScreen ? 12 : 13,
+                                    fontSize: widget.isSmallScreen ? 12 : 13,
                                     color: ModernColors.onSurfaceVariant,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -509,8 +720,8 @@ class CompactRoomCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                    SizedBox(width: isSmallScreen ? 8 : 10),
-                    // Status Badge with Pink Gradient for Available
+                    SizedBox(width: widget.isSmallScreen ? 8 : 10),
+                    // Status Badge with Pink Gradient for Available (hardcoded as requested)
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,
@@ -518,35 +729,24 @@ class CompactRoomCard extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(8),
-                        gradient: status == "Available"
-                            ? const LinearGradient(
+                        gradient: const LinearGradient(
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                           colors: [
                             Color(0xFFFF6B6B), // Coral red
                             Color(0xFFFF5252), // Bright red
                           ],
-                        )
-                            : const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Color(0xFFFF9A3D), // Orange
-                            Color(0xFFFF7B00), // Dark orange
-                          ],
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: status == "Available"
-                                ? const Color(0xFFFF5252).withOpacity(0.3)
-                                : const Color(0xFFFF7B00).withOpacity(0.3),
+                            color: const Color(0xFFFF5252).withOpacity(0.3),
                             blurRadius: 5,
                             offset: const Offset(0, 2),
                           ),
                         ],
                       ),
                       child: Text(
-                        status,
+                        "Available", // Hardcoded as requested
                         style: GoogleFonts.quicksand(
                           fontSize: 10,
                           fontWeight: FontWeight.w800,
@@ -558,7 +758,7 @@ class CompactRoomCard extends StatelessWidget {
                   ],
                 ),
 
-                SizedBox(height: isSmallScreen ? 10 : 12),
+                SizedBox(height: widget.isSmallScreen ? 10 : 12),
 
                 // Features Pills - Water at left, Sunlight at right (made bolder)
                 Row(
@@ -575,10 +775,10 @@ class CompactRoomCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Text(
-                        "💧 Water: $water",
+                        "💧 Water: $water", // Water from Firestore
                         style: GoogleFonts.quicksand(
                           fontSize: 11,
-                          fontWeight: FontWeight.w700, // Made bolder (was w600)
+                          fontWeight: FontWeight.w700,
                           color: const Color(0xFF2E7D32),
                         ),
                       ),
@@ -595,10 +795,10 @@ class CompactRoomCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Text(
-                        "☀️ Sunlight: $sunlight",
+                        "☀️ Sunlight: $sunlight", // Sunlight from Firestore
                         style: GoogleFonts.quicksand(
                           fontSize: 11,
-                          fontWeight: FontWeight.w700, // Made bolder (was w600)
+                          fontWeight: FontWeight.w700,
                           color: const Color(0xFFF57C00),
                         ),
                       ),
@@ -606,7 +806,7 @@ class CompactRoomCard extends StatelessWidget {
                   ],
                 ),
 
-                SizedBox(height: isSmallScreen ? 12 : 14),
+                SizedBox(height: widget.isSmallScreen ? 12 : 14),
 
                 // Room Specifications Grid - Reduced boldness of value color
                 Container(
@@ -621,9 +821,9 @@ class CompactRoomCard extends StatelessWidget {
                       _buildCompactSpecItem(
                         Icons.square_foot_rounded,
                         "Size",
-                        size,
+                        size, // Size from Firestore
                         ModernColors.primary,
-                        isSmallScreen,
+                        widget.isSmallScreen,
                       ),
                       Container(
                         height: 28,
@@ -633,9 +833,9 @@ class CompactRoomCard extends StatelessWidget {
                       _buildCompactSpecItem(
                         Icons.wifi_rounded,
                         "Internet",
-                        internetSpeed,
+                        internetSpeed, // Internet from Firestore
                         const Color(0xFF4CAF50),
-                        isSmallScreen,
+                        widget.isSmallScreen,
                       ),
                       Container(
                         height: 28,
@@ -645,15 +845,15 @@ class CompactRoomCard extends StatelessWidget {
                       _buildCompactSpecItem(
                         Icons.directions_walk_rounded,
                         "Distance",
-                        distance,
+                        distance, // Distance from Firestore with "km"
                         const Color(0xFFFF9800),
-                        isSmallScreen,
+                        widget.isSmallScreen,
                       ),
                     ],
                   ),
                 ),
 
-                SizedBox(height: isSmallScreen ? 12 : 14),
+                SizedBox(height: widget.isSmallScreen ? 12 : 14),
 
                 // Price and Action Button
                 Row(
@@ -686,9 +886,9 @@ class CompactRoomCard extends StatelessWidget {
                             ),
                             const SizedBox(width: 3),
                             Text(
-                              " $priceNPR",
+                              " $priceNPR", // Price from Firestore
                               style: GoogleFonts.quicksand(
-                                fontSize: isSmallScreen ? 20 : 22,
+                                fontSize: widget.isSmallScreen ? 20 : 22,
                                 fontWeight: FontWeight.w800,
                                 color: ModernColors.onSurface.withOpacity(0.9),
                               ),
@@ -707,7 +907,7 @@ class CompactRoomCard extends StatelessWidget {
                       ],
                     ),
 
-                    // Small View Details Button
+                    // Small View Details Button - UPDATED TO USE BOTTOM SHEET
                     Container(
                       height: 34,
                       decoration: BoxDecoration(
@@ -730,27 +930,28 @@ class CompactRoomCard extends StatelessWidget {
                       ),
                       child: ElevatedButton(
                         onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => DetailsScreen(
-                                room: {
-                                  'image': imagePath,
-                                  'images': [imagePath],
-                                  'houseNumber': '30456',
-                                  'location': location,
-                                  'distance': distance,
-                                  'internetSpeed': internetSpeed,
-                                  'priceNPR': priceNPR,
-                                  'water': water,
-                                  'sunlight': sunlight,
-                                  'hasBathroom': hasBathroom,
-                                  'size': size,
-                                  'created_at': DateTime.now(),
-                                },
-                                currency: "NPR",
-                                conversionRate: 145,
-                              ),
+                          // Show the new bottom sheet instead of navigating to DetailsScreen
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => RoomDetailsBottomSheet(
+                              room: {
+                                'images': images,
+                                'roomName': title,
+                                'location': fullLocation,
+                                'distance': distance,
+                                'internet': widget.room['internet'],
+                                'price': priceNPR,
+                                'water': water,
+                                'sunlight': sunlight,
+                                'bathroom': hasBathroom,
+                                'size': widget.room['size']?.toString() ?? '0',
+                                'walkTime': walkTime,
+                                'latitude': widget.room['latitude'],
+                                'longitude': widget.room['longitude'],
+                                'aiPrice': widget.room['aiPrice'],
+                              },
                             ),
                           );
                         },
@@ -762,7 +963,7 @@ class CompactRoomCard extends StatelessWidget {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           padding: EdgeInsets.symmetric(
-                            horizontal: isSmallScreen ? 14 : 16,
+                            horizontal: widget.isSmallScreen ? 14 : 16,
                             vertical: 0,
                           ),
                           minimumSize: const Size(0, 34),
@@ -783,6 +984,65 @@ class CompactRoomCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCachedImageWithShimmer(String imageUrl) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Cached Network Image
+        CachedNetworkImage(
+          imageUrl: imageUrl,
+          fit: BoxFit.cover,
+          fadeInDuration: const Duration(milliseconds: 300),
+          fadeOutDuration: const Duration(milliseconds: 300),
+          placeholder: (context, url) => Container(
+            color: Colors.grey.shade200,
+            child: _buildImageShimmer(),
+          ),
+          errorWidget: (context, url, error) => Container(
+            color: Colors.grey.shade200,
+            child: Center(
+              child: Icon(
+                Icons.image_not_supported_rounded,
+                color: Colors.grey.shade400,
+                size: 40,
+              ),
+            ),
+          ),
+          imageBuilder: (context, imageProvider) {
+            // Image loaded successfully
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && _imageLoading) {
+                setState(() {
+                  _imageLoading = false;
+                });
+              }
+            });
+
+            return Container(
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  image: imageProvider,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImageShimmer() {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey.shade300,
+      highlightColor: Colors.grey.shade100,
+      period: const Duration(milliseconds: 1500),
+      child: Container(
+        color: Colors.white,
       ),
     );
   }
@@ -818,7 +1078,7 @@ class CompactRoomCard extends StatelessWidget {
           style: GoogleFonts.quicksand(
             fontSize: isSmallScreen ? 11 : 12,
             fontWeight: FontWeight.w800,
-            color: ModernColors.onSurface.withOpacity(0.8), // Reduced boldness of color
+            color: ModernColors.onSurface.withOpacity(0.8),
           ),
         ),
       ],
