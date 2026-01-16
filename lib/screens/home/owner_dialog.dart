@@ -179,6 +179,7 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
         'images': uploadedUrls.where((e) => e != null).toList(),
         'createdAt': DateTime.now(),
         'sessionId': sessionId,
+        'status':"Available"
       };
 
       await firestore.collection('room').add(roomDoc);

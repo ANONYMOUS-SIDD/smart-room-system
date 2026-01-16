@@ -13,32 +13,38 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-import 'book_room.dart';
-
-class RoomDetailsBottomSheet extends StatefulWidget {
+class OwnerRoomDetailsDialog extends StatefulWidget {
   final Map<String, dynamic> room;
-  final String? roomDocumentId;
+  final String roomDocumentId;
+  final String bookingId;
+  final String userId;
 
-  const RoomDetailsBottomSheet({
+  const OwnerRoomDetailsDialog({
     super.key,
     required this.room,
-    this.roomDocumentId,
+    required this.roomDocumentId,
+    required this.bookingId,
+    required this.userId,
   });
 
   @override
-  State<RoomDetailsBottomSheet> createState() => _RoomDetailsBottomSheetState();
+  State<OwnerRoomDetailsDialog> createState() => _OwnerRoomDetailsDialogState();
 }
 
-class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
+class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
   late Animation<double> _fadeAnimation;
   int _selectedImageIndex = 0;
   bool _isViewingFullImage = false;
-  bool _isRoomRequested = false;
-  bool _isLoadingStatus = false; // Set to false since we get status instantly
+  bool _isUpdatingStatus = false;
+
+  // User information
+  Map<String, dynamic>? _userData;
+  bool _isLoadingUser = true;
 
   // Map related state variables
   final _currentMapType = ValueNotifier<MapType>(MapType.normal);
@@ -120,22 +126,62 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     // Get location and draw polyline
     _getLocationAndDrawPolyline();
 
-    // Check room status from the passed data (no Firestore call needed)
-    _checkRoomStatus();
+    // Fetch user information
+    _fetchUserData();
   }
 
-  void _checkRoomStatus() {
+  Future<void> _fetchUserData() async {
     try {
-      // Read status directly from the room data passed from home screen
-      final status = widget.room['status']?.toString() ?? '';
-      setState(() {
-        _isRoomRequested = status.toLowerCase() == 'requested';
-        // No loading needed - status is already available
-      });
+      final firestore = FirebaseFirestore.instance;
+      final userDoc = await firestore.collection('User').doc(widget.userId).get();
+
+      if (userDoc.exists) {
+        final data = userDoc.data() as Map<String, dynamic>;
+        setState(() {
+          _userData = {
+            'name': data['Name']?.toString() ?? 'Unknown',
+            'email': data['Email']?.toString() ?? 'No email',
+            'phone': data['Phone']?.toString() ?? 'Not available',
+            'profilePath': data['Path']?.toString() ?? data['profilePath']?.toString() ?? '',
+          };
+          _isLoadingUser = false;
+        });
+      } else {
+        // If user document doesn't exist, try to get from booking data
+        final bookingDoc = await firestore.collection('bookings').doc(widget.bookingId).get();
+        if (bookingDoc.exists) {
+          final bookingData = bookingDoc.data() as Map<String, dynamic>;
+          setState(() {
+            _userData = {
+              'name': bookingData['userEmail']?.toString()?.split('@').first ?? 'User',
+              'email': bookingData['userEmail']?.toString() ?? 'No email',
+              'phone': 'Not available',
+              'profilePath': '',
+            };
+            _isLoadingUser = false;
+          });
+        } else {
+          setState(() {
+            _userData = {
+              'name': 'Unknown User',
+              'email': 'Unknown',
+              'phone': 'Not available',
+              'profilePath': '',
+            };
+            _isLoadingUser = false;
+          });
+        }
+      }
     } catch (e) {
-      debugPrint("Error checking room status: $e");
+      debugPrint("Error fetching user data: $e");
       setState(() {
-        _isRoomRequested = false;
+        _userData = {
+          'name': 'Error loading',
+          'email': 'Unknown',
+          'phone': 'Not available',
+          'profilePath': '',
+        };
+        _isLoadingUser = false;
       });
     }
   }
@@ -300,39 +346,55 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     }
   }
 
-  void _openBookingConfirmation() {
-    if (_isRoomRequested) return; // Don't open if room is already requested
-
-    showDialog(
-      context: context,
-      builder: (context) => BookingConfirmationDialog(
-        room: widget.room,
-        roomDocumentId: widget.roomDocumentId,
-      ),
-    ).then((_) {
-      // Refresh status after booking dialog closes
-      _refreshRoomStatus();
+  Future<void> _updateBookingStatus(String newStatus) async {
+    setState(() {
+      _isUpdatingStatus = true;
     });
-  }
 
-  Future<void> _refreshRoomStatus() async {
-    // After booking, refresh status by fetching from Firestore
     try {
       final firestore = FirebaseFirestore.instance;
-      if (widget.roomDocumentId != null && widget.roomDocumentId!.isNotEmpty) {
-        final roomDoc = await firestore.collection('room').doc(widget.roomDocumentId!).get();
 
-        if (roomDoc.exists) {
-          final roomData = roomDoc.data() as Map<String, dynamic>;
-          final status = roomData['status']?.toString() ?? '';
+      // Update booking status
+      await firestore.collection('bookings').doc(widget.bookingId).update({
+        'bookingStatus': newStatus,
+        'updatedAt': DateTime.now(),
+      });
 
-          setState(() {
-            _isRoomRequested = status.toLowerCase() == 'requested';
-          });
-        }
-      }
+      // Update room status to 'Available' so others can book
+      await firestore.collection('room').doc(widget.roomDocumentId).update({
+        'status': 'Available',
+        'updatedAt': DateTime.now(),
+      });
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Booking $newStatus successfully!',
+            style: GoogleFonts.quicksand(fontWeight: FontWeight.w600),
+          ),
+          backgroundColor: newStatus == 'booked' ? Colors.green : Colors.orange,
+        ),
+      );
+
+      // Close the dialog after update
+      _closeSheet();
+
     } catch (e) {
-      debugPrint("Error refreshing room status: $e");
+      debugPrint("Error updating status: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Failed to update status: $e',
+            style: GoogleFonts.quicksand(fontWeight: FontWeight.w600),
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() {
+        _isUpdatingStatus = false;
+      });
     }
   }
 
@@ -360,11 +422,11 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
           child: GestureDetector(
             onTap: () {}, // Prevent closing when tapping on content
             child: DraggableScrollableSheet(
-              initialChildSize: isTablet ? 0.75 : 0.85,
+              initialChildSize: isTablet ? 0.85 : 0.9,
               minChildSize: 0.5,
               maxChildSize: 0.95,
               snap: true,
-              snapSizes: [isTablet ? 0.75 : 0.85],
+              snapSizes: [isTablet ? 0.85 : 0.9],
               builder: (context, scrollController) {
                 return Container(
                   decoration: BoxDecoration(
@@ -416,6 +478,11 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
         // Header with drag handle
         SliverToBoxAdapter(
           child: _buildHeader(isSmallScreen, isTablet),
+        ),
+
+        // User Information Section - NEW
+        SliverToBoxAdapter(
+          child: _buildUserInfoSection(isSmallScreen, isTablet),
         ),
 
         // Main Image
@@ -508,7 +575,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
 
                         SizedBox(width: isTablet ? 16 : (isSmallScreen ? 8 : 10)),
 
-                        // Room Status Button - Shows Available or Requested (NO LOADING)
+                        // Room Status Button - Shows "Requested" (since this is owner view)
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
@@ -516,32 +583,19 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                           ),
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(8),
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: _isRoomRequested
-                                  ? [
-                                Color(0xFFFF9800), // Orange
-                                Color(0xFFF57C00), // Dark Orange
-                              ]
-                                  : [
-                                Color(0xFF4CAF50), // Green
-                                Color(0xFF2E7D32), // Dark Green
-                              ],
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFFF9800), Color(0xFFF57C00)],
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: (_isRoomRequested
-                                    ? const Color(0xFFFF9800)
-                                    : const Color(0xFF4CAF50))
-                                    .withOpacity(0.3),
+                                color: const Color(0xFFFF9800).withOpacity(0.3),
                                 blurRadius: 5,
                                 offset: const Offset(0, 2),
                               ),
                             ],
                           ),
                           child: Text(
-                            _isRoomRequested ? "Requested" : "Available",
+                            "Requested",
                             style: GoogleFonts.quicksand(
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
@@ -606,7 +660,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                       ),
                     ),
 
-                    // Monthly Rent Section with Compare Button
+                    // Monthly Rent Section (without Compare button for owner)
                     Padding(
                       padding: EdgeInsets.only(
                         top: isTablet ? 20 : (isSmallScreen ? 16 : 18),
@@ -632,91 +686,50 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                             ),
                           ],
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            // Monthly Rent Details
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
+                            Text(
+                              "Monthly Rent",
+                              style: GoogleFonts.quicksand(
+                                fontSize: isTablet ? 13 : (isSmallScreen ? 11 : 12),
+                                fontWeight: FontWeight.w700,
+                                color: ModernColors.onSurfaceVariant,
+                              ),
+                            ),
+                            SizedBox(height: isTablet ? 4 : (isSmallScreen ? 2 : 3)),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.baseline,
+                              textBaseline: TextBaseline.alphabetic,
                               children: [
                                 Text(
-                                  "Monthly Rent",
+                                  "NPR",
                                   style: GoogleFonts.quicksand(
                                     fontSize: isTablet ? 13 : (isSmallScreen ? 11 : 12),
-                                    fontWeight: FontWeight.w700,
-                                    color: ModernColors.onSurfaceVariant,
+                                    color: ModernColors.onSurfaceVariant.withOpacity(0.8),
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                SizedBox(height: isTablet ? 4 : (isSmallScreen ? 2 : 3)),
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                                  textBaseline: TextBaseline.alphabetic,
-                                  children: [
-                                    Text(
-                                      "NPR",
-                                      style: GoogleFonts.quicksand(
-                                        fontSize: isTablet ? 13 : (isSmallScreen ? 11 : 12),
-                                        color: ModernColors.onSurfaceVariant.withOpacity(0.8),
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    SizedBox(width: isTablet ? 6 : (isSmallScreen ? 3 : 4)),
-                                    Text(
-                                      " $priceNPR",
-                                      style: GoogleFonts.quicksand(
-                                        fontSize: isTablet ? 22 : (isSmallScreen ? 18 : 20),
-                                        fontWeight: FontWeight.w800,
-                                        color: ModernColors.onSurface, // Black color
-                                      ),
-                                    ),
-                                    SizedBox(width: isTablet ? 6 : (isSmallScreen ? 3 : 4)),
-                                    Text(
-                                      "/month",
-                                      style: GoogleFonts.quicksand(
-                                        fontSize: isTablet ? 13 : (isSmallScreen ? 11 : 12),
-                                        color: ModernColors.onSurfaceVariant.withOpacity(0.8),
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
+                                SizedBox(width: isTablet ? 6 : (isSmallScreen ? 3 : 4)),
+                                Text(
+                                  " $priceNPR",
+                                  style: GoogleFonts.quicksand(
+                                    fontSize: isTablet ? 22 : (isSmallScreen ? 18 : 20),
+                                    fontWeight: FontWeight.w800,
+                                    color: ModernColors.onSurface,
+                                  ),
+                                ),
+                                SizedBox(width: isTablet ? 6 : (isSmallScreen ? 3 : 4)),
+                                Text(
+                                  "/month",
+                                  style: GoogleFonts.quicksand(
+                                    fontSize: isTablet ? 13 : (isSmallScreen ? 11 : 12),
+                                    color: ModernColors.onSurfaceVariant.withOpacity(0.8),
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ],
-                            ),
-
-                            // Compare Button (Green Gradient)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(8),
-                                gradient: const LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    Color(0xFF4CAF50), // Green
-                                    Color(0xFF2E7D32), // Dark Green
-                                  ],
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(0xFF4CAF50).withOpacity(0.3),
-                                    blurRadius: 5,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Text(
-                                "Compare",
-                                style: GoogleFonts.quicksand(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
                             ),
                           ],
                         ),
@@ -923,7 +936,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
           ),
         ),
 
-        // Location Details Section (Simplified - Map + Open in Maps button only)
+        // Location Details Section
         SliverToBoxAdapter(
           child: _buildLocationSection(
             fullLocation: fullLocation,
@@ -934,7 +947,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
           ),
         ),
 
-        // Action Buttons - Chat and Book with Gradients
+        // Accept/Reject Buttons - NEW SECTION (REVERSED POSITIONS)
         SliverToBoxAdapter(
           child: _buildActionButtons(isSmallScreen, isTablet),
         ),
@@ -968,7 +981,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
           // Center aligned title
           Center(
             child: Text(
-              "Room Details",
+              "Booking Request Details",
               style: GoogleFonts.quicksand(
                 fontSize: isTablet ? 24 : (isSmallScreen ? 18 : 20),
                 fontWeight: FontWeight.w800,
@@ -981,6 +994,231 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
+  Widget _buildUserInfoSection(bool isSmallScreen, bool isTablet) {
+    final userName = _userData?['name']?.toString() ?? 'Unknown User';
+    final userEmail = _userData?['email']?.toString() ?? 'No email';
+    final userPhone = _userData?['phone']?.toString() ?? 'Not available';
+    final userPhoto = _userData?['profilePath']?.toString();
+
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+        vertical: isTablet ? 8 : (isSmallScreen ? 8 : 12),
+      ),
+      child: Container(
+        padding: EdgeInsets.all(isTablet ? 16 : (isSmallScreen ? 12 : 14)),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+          border: Border.all(
+            color: const Color(0xFFE2E8F0),
+            width: 1.0,
+          ),
+        ),
+        child: Row(
+          children: [
+            // User Photo - Reduced size
+            Container(
+              width: isTablet ? 50 : (isSmallScreen ? 40 : 45),
+              height: isTablet ? 50 : (isSmallScreen ? 40 : 45),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFFE2E8F0),
+                  width: 1.5,
+                ),
+              ),
+              child: ClipOval(
+                child: userPhoto != null && userPhoto.isNotEmpty
+                    ? CachedNetworkImage(
+                  imageUrl: userPhoto,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    color: const Color(0xFFF1F5F9),
+                    child: Center(
+                      child: Icon(
+                        Icons.person_rounded,
+                        size: isTablet ? 20 : 16,
+                        color: const Color(0xFF94A3B8),
+                      ),
+                    ),
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    color: const Color(0xFFF1F5F9),
+                    child: Center(
+                      child: Icon(
+                        Icons.person_rounded,
+                        size: isTablet ? 20 : 16,
+                        color: const Color(0xFF94A3B8),
+                      ),
+                    ),
+                  ),
+                )
+                    : Container(
+                  color: const Color(0xFFF1F5F9),
+                  child: Center(
+                    child: Icon(
+                      Icons.person_rounded,
+                      size: isTablet ? 20 : 16,
+                      color: const Color(0xFF94A3B8),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(width: isTablet ? 14 : (isSmallScreen ? 10 : 12)),
+
+            // User Details - Small font
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    userName,
+                    style: GoogleFonts.quicksand(
+                      fontSize: isTablet ? 16 : (isSmallScreen ? 13 : 14),
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF1E293B),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  SizedBox(height: isTablet ? 4 : (isSmallScreen ? 2 : 3)),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.email_rounded,
+                        size: isTablet ? 14 : (isSmallScreen ? 12 : 13),
+                        color: Colors.deepOrange, // Changed to black
+                      ),
+                      SizedBox(width: isTablet ? 6 : (isSmallScreen ? 4 : 5)),
+                      Expanded(
+                        child: Text(
+                          userEmail,
+                          style: GoogleFonts.quicksand(
+                            fontSize: isTablet ? 12 : (isSmallScreen ? 10 : 11),
+                            fontWeight: FontWeight.w600, // Made bolder
+                            color: const Color(0xFF1E293B), // Changed to black
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: isTablet ? 2 : (isSmallScreen ? 1 : 2)),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.phone_rounded,
+                        size: isTablet ? 14 : (isSmallScreen ? 12 : 13),
+                        color: Colors.blue, // Changed to black
+                      ),
+                      SizedBox(width: isTablet ? 6 : (isSmallScreen ? 4 : 5)),
+                      Text(
+                        userPhone,
+                        style: GoogleFonts.quicksand(
+                          fontSize: isTablet ? 12 : (isSmallScreen ? 10 : 11),
+                          fontWeight: FontWeight.w600, // Made bolder
+                          color: const Color(0xFF1E293B), // Changed to black
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // Messaging icon at right center
+            Container(
+              width: isTablet ? 36 : (isSmallScreen ? 30 : 32),
+              height: isTablet ? 36 : (isSmallScreen ? 30 : 32),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0084FF),
+                borderRadius: BorderRadius.circular(isTablet ? 10 : 8),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0084FF).withOpacity(0.3),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.messenger_rounded,
+                size: isTablet ? 18 : (isSmallScreen ? 16 : 17),
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserInfoShimmer(bool isSmallScreen, bool isTablet) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey.shade300,
+      highlightColor: Colors.grey.shade100,
+      child: Row(
+        children: [
+          // User Photo Shimmer - Reduced size
+          Container(
+            width: isTablet ? 50 : (isSmallScreen ? 40 : 45),
+            height: isTablet ? 50 : (isSmallScreen ? 40 : 45),
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white,
+            ),
+          ),
+          SizedBox(width: isTablet ? 14 : (isSmallScreen ? 10 : 12)),
+
+          // User Details Shimmer
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 120,
+                  height: isTablet ? 16 : 14,
+                  color: Colors.white,
+                  margin: EdgeInsets.only(bottom: isTablet ? 4 : 2),
+                ),
+                Container(
+                  width: 180,
+                  height: isTablet ? 12 : 11,
+                  color: Colors.white,
+                  margin: EdgeInsets.only(bottom: isTablet ? 2 : 1),
+                ),
+                Container(
+                  width: 150,
+                  height: isTablet ? 12 : 11,
+                  color: Colors.white,
+                ),
+              ],
+            ),
+          ),
+
+          // Messaging icon placeholder
+          Container(
+            width: isTablet ? 36 : (isSmallScreen ? 30 : 32),
+            height: isTablet ? 36 : (isSmallScreen ? 30 : 32),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(isTablet ? 10 : 8),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   Widget _buildMainImageSection(List<String> images, bool isSmallScreen, bool isTablet) {
     if (images.isEmpty) {
       return Padding(
@@ -1551,7 +1789,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
 
     return Padding(
       padding: EdgeInsets.symmetric(
-        horizontal: isTablet ? 12 : (isSmallScreen ? 8 : 10), // Reduced horizontal padding
+        horizontal: isTablet ? 12 : (isSmallScreen ? 8 : 10),
         vertical: isTablet ? 12 : 8,
       ),
       child: Container(
@@ -1612,8 +1850,8 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
             if (hasCoordinates && destination != null) ...[
               // LARGER Map Container with minimal margins
               Container(
-                height: isTablet ? 380 : (isSmallScreen ? 280 : 320), // Increased height
-                width: double.infinity, // Full width
+                height: isTablet ? 380 : (isSmallScreen ? 280 : 320),
+                width: double.infinity,
                 margin: EdgeInsets.only(
                   left: 0,
                   right: 0,
@@ -1719,7 +1957,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                         right: 8,
                         child: Column(
                           children: [
-                            // Satellite Button - Always shows satellite icon
+                            // Satellite Button
                             ValueListenableBuilder<MapType>(
                               valueListenable: _currentMapType,
                               builder: (context, mapType, _) {
@@ -1856,121 +2094,163 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
         horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20),
         vertical: isTablet ? 16 : (isSmallScreen ? 12 : 16),
       ),
-      child: Row(
+      child: Column(
         children: [
-          // Chat Button with Purple Gradient
-          Expanded(
-            child: Container(
-              height: isTablet ? 50 : (isSmallScreen ? 40 : 44),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF9C27B0), // Purple
-                    Color(0xFF7B1FA2), // Dark Purple
-                  ],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF9C27B0).withOpacity(0.3),
-                    blurRadius: 6,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: ElevatedButton(
-                onPressed: () {
-                  // TODO: Implement chat
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
-                  ),
-                  elevation: 0,
-                  padding: EdgeInsets.zero,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.chat_bubble_rounded,
-                      size: isTablet ? 20 : (isSmallScreen ? 16 : 18),
-                    ),
-                    SizedBox(width: isTablet ? 8 : (isSmallScreen ? 4 : 6)),
-                    Text(
-                      "Chat",
-                      style: GoogleFonts.quicksand(
-                        fontSize: isTablet ? 16 : (isSmallScreen ? 13 : 14),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
+          // Accept/Reject Header
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Text(
+              "Booking Decision",
+              style: GoogleFonts.quicksand(
+                fontSize: isTablet ? 18 : (isSmallScreen ? 14 : 16),
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF1E293B),
               ),
             ),
           ),
 
-          SizedBox(width: isTablet ? 12 : (isSmallScreen ? 8 : 10)),
-
-          // Book Button with Dark Blue Gradient (disabled when room is requested)
-          Expanded(
-            child: Container(
-              height: isTablet ? 50 : (isSmallScreen ? 40 : 44),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: _isRoomRequested
-                      ? [
-                    Colors.grey.shade400, // Grey when disabled
-                    Colors.grey.shade600, // Dark grey when disabled
-                  ]
-                      : [
-                    Color(0xFF1565C0), // Dark Blue
-                    Color(0xFF0D47A1), // Darker Blue
-                  ],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: (_isRoomRequested ? Colors.grey : const Color(0xFF1565C0)).withOpacity(0.3),
-                    blurRadius: 6,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: ElevatedButton(
-                onPressed: _isRoomRequested ? null : _openBookingConfirmation,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
+          Row(
+            children: [
+              // REJECT Button at LEFT (Red Gradient)
+              Expanded(
+                child: Container(
+                  height: isTablet ? 50 : (isSmallScreen ? 40 : 44),
+                  decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
-                  ),
-                  elevation: 0,
-                  padding: EdgeInsets.zero,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      _isRoomRequested ? Icons.block : Icons.bookmark_rounded,
-                      size: isTablet ? 20 : (isSmallScreen ? 16 : 18),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFFF44336), // Red
+                        Color(0xFFD32F2F), // Dark Red
+                      ],
                     ),
-                    SizedBox(width: isTablet ? 8 : (isSmallScreen ? 4 : 6)),
-                    Text(
-                      _isRoomRequested ? "Requested" : "Book",
-                      style: GoogleFonts.quicksand(
-                        fontSize: isTablet ? 16 : (isSmallScreen ? 13 : 14),
-                        fontWeight: FontWeight.w800,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFF44336).withOpacity(0.3),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
                       ),
+                    ],
+                  ),
+                  child: ElevatedButton(
+                    onPressed: _isUpdatingStatus ? null : () => _updateBookingStatus('rejected'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
+                      ),
+                      elevation: 0,
+                      padding: EdgeInsets.zero,
                     ),
-                  ],
+                    child: _isUpdatingStatus
+                        ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Colors.white,
+                      ),
+                    )
+                        : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.cancel_rounded,
+                          size: isTablet ? 20 : (isSmallScreen ? 16 : 18),
+                        ),
+                        SizedBox(width: isTablet ? 8 : (isSmallScreen ? 4 : 6)),
+                        Text(
+                          "Reject",
+                          style: GoogleFonts.quicksand(
+                            fontSize: isTablet ? 16 : (isSmallScreen ? 13 : 14),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
+              ),
+
+              SizedBox(width: isTablet ? 12 : (isSmallScreen ? 8 : 10)),
+
+              // ACCEPT Button at RIGHT (Green Gradient with Verified Icon)
+              Expanded(
+                child: Container(
+                  height: isTablet ? 50 : (isSmallScreen ? 40 : 44),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFF4CAF50), // Green
+                        Color(0xFF2E7D32), // Dark Green
+                      ],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF4CAF50).withOpacity(0.3),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: ElevatedButton(
+                    onPressed: _isUpdatingStatus ? null : () => _updateBookingStatus('booked'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
+                      ),
+                      elevation: 0,
+                      padding: EdgeInsets.zero,
+                    ),
+                    child: _isUpdatingStatus
+                        ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Colors.white,
+                      ),
+                    )
+                        : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.verified_rounded, // Verified icon
+                          size: isTablet ? 20 : (isSmallScreen ? 16 : 18),
+                        ),
+                        SizedBox(width: isTablet ? 8 : (isSmallScreen ? 4 : 6)),
+                        Text(
+                          "Accept",
+                          style: GoogleFonts.quicksand(
+                            fontSize: isTablet ? 16 : (isSmallScreen ? 13 : 14),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          // Info text
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(
+              "Note: Room will become available for others after decision",
+              textAlign: TextAlign.center,
+              style: GoogleFonts.quicksand(
+                fontSize: isTablet ? 12 : (isSmallScreen ? 10 : 11),
+                color: const Color(0xFF64748B),
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),

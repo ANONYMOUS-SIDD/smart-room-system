@@ -107,6 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       final room = roomDoc.data() as Map<String, dynamic>;
                       return CompactRoomCardFromFirestore(
                         room: room,
+                        roomDocumentId: roomDoc.id, // Pass document ID
                         isSmallScreen: isSmallScreen,
                       );
                     }).toList(),
@@ -529,11 +530,13 @@ class _HomeScreenState extends State<HomeScreen> {
 // ==============================
 class CompactRoomCardFromFirestore extends StatefulWidget {
   final Map<String, dynamic> room;
+  final String roomDocumentId;
   final bool isSmallScreen;
 
   const CompactRoomCardFromFirestore({
     super.key,
     required this.room,
+    required this.roomDocumentId,
     required this.isSmallScreen,
   });
 
@@ -543,6 +546,8 @@ class CompactRoomCardFromFirestore extends StatefulWidget {
 
 class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirestore> {
   bool _imageLoading = true;
+  bool _isRoomRequested = false;
+  bool _isLoadingStatus = true;
 
   // Check if distance <= 2.0 km for badge display
   bool get _isNearKU {
@@ -566,6 +571,28 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
       return '$distance km';
     }
     return distance;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Check room status from the room data
+    _checkRoomStatus();
+  }
+
+  void _checkRoomStatus() {
+    try {
+      final status = widget.room['status']?.toString() ?? '';
+      setState(() {
+        _isRoomRequested = status.toLowerCase() == 'requested';
+        _isLoadingStatus = false;
+      });
+    } catch (e) {
+      debugPrint("Error checking room status: $e");
+      setState(() {
+        _isLoadingStatus = false;
+      });
+    }
   }
 
   @override
@@ -721,40 +748,68 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
                       ),
                     ),
                     SizedBox(width: widget.isSmallScreen ? 8 : 10),
-                    // Status Badge with Pink Gradient for Available (hardcoded as requested)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Color(0xFFFF6B6B), // Coral red
-                            Color(0xFFFF5252), // Bright red
+                    // Status Badge - Shows loading, Available, or Requested
+                    if (_isLoadingStatus)
+                      Container(
+                        width: 60,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.grey.shade300,
+                        ),
+                        child: Center(
+                          child: SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.5,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: _isRoomRequested
+                                ? [
+                              Color(0xFFFF9800), // Orange
+                              Color(0xFFF57C00), // Dark Orange
+                            ]
+                                : [
+                              Color(0xFF4CAF50), // Green
+                              Color(0xFF2E7D32), // Dark Green
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: (_isRoomRequested
+                                  ? const Color(0xFFFF9800)
+                                  : const Color(0xFF4CAF50))
+                                  .withOpacity(0.3),
+                              blurRadius: 5,
+                              offset: const Offset(0, 2),
+                            ),
                           ],
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFFFF5252).withOpacity(0.3),
-                            blurRadius: 5,
-                            offset: const Offset(0, 2),
+                        child: Text(
+                          _isRoomRequested ? "Requested" : "Available",
+                          style: GoogleFonts.quicksand(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            letterSpacing: 0.5,
                           ),
-                        ],
-                      ),
-                      child: Text(
-                        "Available", // Hardcoded as requested
-                        style: GoogleFonts.quicksand(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: 0.5,
                         ),
                       ),
-                    ),
                   ],
                 ),
 
@@ -951,7 +1006,9 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
                                 'latitude': widget.room['latitude'],
                                 'longitude': widget.room['longitude'],
                                 'aiPrice': widget.room['aiPrice'],
+                                'status': _isRoomRequested ? 'Requested' : 'Available',
                               },
+                              roomDocumentId: widget.roomDocumentId,
                             ),
                           );
                         },
