@@ -1,7 +1,3 @@
-// Profile Screen For User Account Management
-// Features Profile Editing, Image Upload, And Account Settings With Modern UI
-// Updated with Supabase image upload functionality
-
 import 'dart:io';
 import 'dart:math';
 
@@ -11,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shimmer/shimmer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
 import '../../services/auth_service.dart';
@@ -47,13 +44,13 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     user = FirebaseAuth.instance.currentUser;
 
     // Initialize Animation Controller For Smooth Transitions
-    _fadeAnimationController = AnimationController(duration: const Duration(milliseconds: 600), vsync: this);
+    _fadeAnimationController = AnimationController(duration: const Duration(milliseconds: 400), vsync: this);
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(CurvedAnimation(parent: _fadeAnimationController, curve: Curves.easeInOut));
 
     _loadUser();
   }
 
-  /// Load User Profile Data From Firestore With Loading Delay Simulation
+  /// Load User Profile Data From Firestore
   Future<void> _loadUser() async {
     if (user == null) {
       setState(() => _isLoading = false);
@@ -65,16 +62,13 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
       if (!mounted) return;
 
-      // Simulate Loading Delay For Better UX
-      await Future.delayed(const Duration(milliseconds: 300));
-
       setState(() {
         userDoc = doc;
         _isLoading = false;
         _isUploadingImage = false;
       });
 
-      // Start Fade-In Animation
+      // Start Fade-In Animation immediately
       _fadeAnimationController.forward();
     } catch (e) {
       print("Error loading user: $e");
@@ -290,97 +284,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     super.dispose();
   }
 
-  /// Build Rounded Loading Placeholder Box With Adjustable Dimensions
-  Widget _buildRoundedLoadingBox({double? width, double? height, bool isCircle = false, double? maxWidth}) {
-    return Container(
-      width: width,
-      height: height,
-      constraints: maxWidth != null ? BoxConstraints(maxWidth: maxWidth) : null,
-      decoration: BoxDecoration(color: const Color(0xFFF2F2F7), shape: isCircle ? BoxShape.circle : BoxShape.rectangle, borderRadius: isCircle ? null : BorderRadius.circular(6)),
-    );
-  }
-
-  /// Build Loading State For Profile Card Section
-  Widget _buildProfileLoading() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 12, offset: const Offset(0, 3))],
-        border: Border.all(color: Colors.grey[200]!, width: 1),
-      ),
-      child: Column(
-        children: [
-          // Profile Image Loading With Pencil Button Placeholder
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                width: 88,
-                height: 88,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.grey.shade300, width: 2.5),
-                ),
-                child: _buildRoundedLoadingBox(isCircle: true),
-              ),
-              // Pencil Button Loading Placeholder
-              Positioned(
-                bottom: 0,
-                right: 0,
-                child: Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFFF2F2F7)),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 18),
-
-          // Text Information Loading Placeholders
-          Column(children: [_buildRoundedLoadingBox(width: 100, height: 18), const SizedBox(height: 10), _buildRoundedLoadingBox(width: 140, height: 14), const SizedBox(height: 6), _buildRoundedLoadingBox(width: 120, height: 13)]),
-        ],
-      ),
-    );
-  }
-
-  /// Build Loading State For Settings Tiles Section
-  Widget _buildSettingsLoading() {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 12, offset: const Offset(0, 3))],
-        border: Border.all(color: Colors.grey[200]!, width: 1),
-      ),
-      child: Column(
-        children: [
-          for (int i = 0; i < 3; i++) ...[
-            if (i > 0) const Divider(height: 0, thickness: 0.5, color: Color(0xFFE2E8F0)),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Row(
-                children: [
-                  _buildRoundedLoadingBox(width: 34, height: 34),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Padding(padding: const EdgeInsets.only(right: 40), child: _buildRoundedLoadingBox(height: 15, maxWidth: 200)),
-                  ),
-                  _buildRoundedLoadingBox(width: 20, height: 20),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final name = userDoc?['Name'] ?? 'No Name';
@@ -391,58 +294,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     return Scaffold(
       backgroundColor: const Color(0xFFF2F2F7),
       appBar: const ModernAppBar(title: "My Profile"),
-      body: _isLoading ? _buildLoadingLayout() : _buildContentLayout(name, email, phone, imagePath),
-    );
-  }
-
-  /// Build Complete Loading Layout With Placeholders
-  Widget _buildLoadingLayout() {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          const SizedBox(height: 16),
-          // Profile Card Loading
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: _buildProfileLoading()),
-          const SizedBox(height: 20),
-          // Settings Section Loading
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: _buildSettingsLoading()),
-          const SizedBox(height: 16),
-          // Account Section Loading
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 12, offset: const Offset(0, 3))],
-                border: Border.all(color: Colors.grey[200]!, width: 1),
-              ),
-              child: Column(
-                children: [
-                  for (int i = 0; i < 2; i++) ...[
-                    if (i > 0) const Divider(height: 0, thickness: 0.5, color: Color(0xFFE2E8F0)),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      child: Row(
-                        children: [
-                          _buildRoundedLoadingBox(width: 34, height: 34),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Padding(padding: const EdgeInsets.only(right: 40), child: _buildRoundedLoadingBox(height: 15, maxWidth: 180)),
-                          ),
-                          _buildRoundedLoadingBox(width: 20, height: 20),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 30),
-        ],
-      ),
+      body: _buildContentLayout(name, email, phone, imagePath),
     );
   }
 
@@ -474,7 +326,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                       ),
                       child: Column(
                         children: [
-                          // Profile Image With Edit Pencil Button
+                          // Profile Image With Edit Pencil Button - SHIMMER DURING UPLOAD ONLY
                           Stack(
                             clipBehavior: Clip.none,
                             children: [
@@ -487,16 +339,28 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                                 ),
                                 child: Stack(
                                   children: [
-                                    CircleAvatar(
-                                      radius: 41,
-                                      backgroundColor: Colors.grey[200],
-                                      backgroundImage: _getProfileImageProvider(imagePath),
-                                      child: (imagePath == null || (imagePath as String).isEmpty) ? Icon(Icons.person, size: 44, color: Colors.grey[400]) : null,
-                                    ),
+                                    // Show shimmer when uploading
                                     if (_isUploadingImage)
-                                      Container(
-                                        decoration: BoxDecoration(color: Colors.black.withOpacity(0.5), shape: BoxShape.circle),
-                                        child: const Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.white))),
+                                      Shimmer.fromColors(
+                                        baseColor: Colors.grey.shade300,
+                                        highlightColor: Colors.grey.shade100,
+                                        child: Container(
+                                          width: 88,
+                                          height: 88,
+                                          decoration: const BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+
+                                    // Show actual image when not uploading
+                                    if (!_isUploadingImage)
+                                      CircleAvatar(
+                                        radius: 41,
+                                        backgroundColor: Colors.grey[200],
+                                        backgroundImage: _getProfileImageProvider(imagePath),
+                                        child: (imagePath == null || (imagePath as String).isEmpty) ? Icon(Icons.person, size: 44, color: Colors.grey[400]) : null,
                                       ),
                                   ],
                                 ),
@@ -519,7 +383,20 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                                       boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 4, offset: const Offset(0, 2))],
                                     ),
                                     child: Center(
-                                      child: _isUploadingImage ? SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.grey.shade700))) : Icon(Icons.edit, size: 14, color: Colors.orange.shade700),
+                                      child: _isUploadingImage
+                                          ? Shimmer.fromColors(
+                                        baseColor: Colors.grey.shade300,
+                                        highlightColor: Colors.grey.shade100,
+                                        child: Container(
+                                          width: 14,
+                                          height: 14,
+                                          decoration: const BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      )
+                                          : Icon(Icons.edit, size: 14, color: Colors.orange.shade700),
                                     ),
                                   ),
                                 ),
@@ -529,15 +406,18 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
                           const SizedBox(height: 18),
 
-                          // User Information Display
+                          // User Information Display - ALWAYS SHOW ACTUAL DATA, NO SHIMMER HERE
                           Column(
                             children: [
+                              // Always show actual name (even during upload)
                               Text(
                                 name,
                                 style: GoogleFonts.quicksand(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.black),
                                 textAlign: TextAlign.center,
                               ),
                               const SizedBox(height: 4),
+
+                              // Always show actual email (even during upload)
                               Text(
                                 email,
                                 style: GoogleFonts.quicksand(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700]),
@@ -546,6 +426,8 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                                 overflow: TextOverflow.ellipsis,
                               ),
                               const SizedBox(height: 2),
+
+                              // Always show actual phone (even during upload)
                               Text(
                                 phone,
                                 style: GoogleFonts.quicksand(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey[600]),
@@ -560,7 +442,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
                   const SizedBox(height: 20),
 
-                  // Settings Section
+                  // Settings Section - BUTTONS ARE ENABLED EVEN DURING UPLOAD
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Container(
@@ -573,11 +455,26 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                       ),
                       child: Column(
                         children: [
-                          _compactSettingsTile(icon: Icons.person_outline, iconColor: Colors.deepPurple, title: "Change Username", onTap: _changeName),
+                          _compactSettingsTile(
+                            icon: Icons.person_outline,
+                            iconColor: Colors.deepPurple,
+                            title: "Change Username",
+                            onTap: _changeName,
+                          ),
                           const Divider(height: 0, thickness: 0.5),
-                          _compactSettingsTile(icon: Icons.lock_outline, iconColor: Colors.orange, title: "Change Password", onTap: _resetPassword),
+                          _compactSettingsTile(
+                            icon: Icons.lock_outline,
+                            iconColor: Colors.orange,
+                            title: "Change Password",
+                            onTap: _resetPassword,
+                          ),
                           const Divider(height: 0, thickness: 0.5),
-                          _compactSettingsTile(icon: Icons.phone_outlined, iconColor: Colors.green, title: "Change Phone Number", onTap: _changePhone),
+                          _compactSettingsTile(
+                            icon: Icons.phone_outlined,
+                            iconColor: Colors.green,
+                            title: "Change Phone Number",
+                            onTap: _changePhone,
+                          ),
                         ],
                       ),
                     ),
@@ -585,7 +482,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
                   const SizedBox(height: 16),
 
-                  // Account Management Section
+                  // Account Management Section - BUTTONS ARE ENABLED EVEN DURING UPLOAD
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Container(
@@ -598,9 +495,20 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                       ),
                       child: Column(
                         children: [
-                          _compactSettingsTile(icon: Icons.add_circle_outline, iconColor: Colors.blue, title: "Create New Account", onTap: () => Get.to(() => SignUpScreen())),
+                          _compactSettingsTile(
+                            icon: Icons.add_circle_outline,
+                            iconColor: Colors.blue,
+                            title: "Create New Account",
+                            onTap: () => Get.to(() => SignUpScreen()),
+                          ),
                           const Divider(height: 0, thickness: 0.5),
-                          _compactSettingsTile(icon: Icons.logout, iconColor: Colors.red, title: "Log Out", onTap: _logout, isDestructive: true),
+                          _compactSettingsTile(
+                            icon: Icons.logout,
+                            iconColor: Colors.red,
+                            title: "Log Out",
+                            onTap: _logout,
+                            isDestructive: true,
+                          ),
                         ],
                       ),
                     ),
@@ -632,7 +540,13 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   }
 
   /// Build Compact Settings Tile With Consistent Styling
-  Widget _compactSettingsTile({required IconData icon, required Color iconColor, required String title, required VoidCallback onTap, bool isDestructive = false}) {
+  Widget _compactSettingsTile({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required VoidCallback? onTap,
+    bool isDestructive = false,
+  }) {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       minVerticalPadding: 0,
@@ -640,14 +554,29 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       leading: Container(
         width: 34,
         height: 34,
-        decoration: BoxDecoration(color: iconColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-        child: Icon(icon, size: 18, color: isDestructive ? Colors.red : iconColor),
+        decoration: BoxDecoration(
+          color: iconColor.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(
+          icon,
+          size: 18,
+          color: isDestructive ? Colors.red : iconColor,
+        ),
       ),
       title: Text(
         title,
-        style: GoogleFonts.quicksand(fontSize: 15, fontWeight: FontWeight.w600, color: isDestructive ? Colors.red : Colors.black),
+        style: GoogleFonts.quicksand(
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          color: isDestructive ? Colors.red : Colors.black,
+        ),
       ),
-      trailing: Icon(Icons.chevron_right, size: 20, color: isDestructive ? Colors.red : Colors.grey[400]),
+      trailing: Icon(
+        Icons.chevron_right,
+        size: 20,
+        color: isDestructive ? Colors.red : Colors.grey[400],
+      ),
       onTap: onTap,
     );
   }

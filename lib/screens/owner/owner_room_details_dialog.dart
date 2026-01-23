@@ -14,12 +14,15 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/toast_service.dart';
 
 class OwnerRoomDetailsDialog extends StatefulWidget {
   final Map<String, dynamic> room;
   final String roomDocumentId;
   final String bookingId;
   final String userId;
+  final bool isHistoryView;
+  final bool shouldShowUserInfo;
 
   const OwnerRoomDetailsDialog({
     super.key,
@@ -27,6 +30,8 @@ class OwnerRoomDetailsDialog extends StatefulWidget {
     required this.roomDocumentId,
     required this.bookingId,
     required this.userId,
+    this.isHistoryView = false,
+    this.shouldShowUserInfo = true,
   });
 
   @override
@@ -40,7 +45,6 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   late Animation<double> _fadeAnimation;
   int _selectedImageIndex = 0;
   bool _isViewingFullImage = false;
-  bool _isUpdatingStatus = false;
 
   // User information
   Map<String, dynamic>? _userData;
@@ -54,6 +58,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   final _polylines = ValueNotifier<Set<Polyline>>({});
   final _walkTime = ValueNotifier<String>("0 min");
   final _distance = ValueNotifier<String>("0.00 km");
+
+  // Toast service
+  final ToastService _toastService = ToastService();
 
   // New polyline approach - direct drawing
   LatLng? _destination;
@@ -126,58 +133,85 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     // Get location and draw polyline
     _getLocationAndDrawPolyline();
 
-    // Fetch user information
-    _fetchUserData();
+    // Fetch user information - Only if shouldShowUserInfo is true
+    if (widget.shouldShowUserInfo) {
+      _fetchUserData();
+    } else {
+      // Don't show user info for "My Room" section
+      _isLoadingUser = false;
+    }
   }
 
   Future<void> _fetchUserData() async {
     try {
-      final firestore = FirebaseFirestore.instance;
-      final userDoc = await firestore.collection('User').doc(widget.userId).get();
-
-      if (userDoc.exists) {
-        final data = userDoc.data() as Map<String, dynamic>;
+      // Don't fetch user info if not needed
+      if (!widget.shouldShowUserInfo) {
         setState(() {
-          _userData = {
-            'name': data['Name']?.toString() ?? 'Unknown',
-            'email': data['Email']?.toString() ?? 'No email',
-            'phone': data['Phone']?.toString() ?? 'Not available',
-            'profilePath': data['Path']?.toString() ?? data['profilePath']?.toString() ?? '',
-          };
           _isLoadingUser = false;
         });
-      } else {
-        // If user document doesn't exist, try to get from booking data
+        return;
+      }
+
+      final firestore = FirebaseFirestore.instance;
+
+      // Check if we have userId from room data
+      final userId = widget.room['userId']?.toString() ?? widget.userId;
+
+      // If we have a valid userId, fetch from User collection
+      if (userId.isNotEmpty && userId != 'null') {
+        final userDoc = await firestore.collection('User').doc(userId).get();
+
+        if (userDoc.exists) {
+          final data = userDoc.data() as Map<String, dynamic>;
+          setState(() {
+            _userData = {
+              'name': data['Name']?.toString() ?? 'Unknown',
+              'email': data['Email']?.toString() ?? 'No email',
+              'phone': data['Phone']?.toString() ?? 'Not available',
+              'profilePath': data['Path']?.toString() ?? data['profilePath']?.toString() ?? '',
+            };
+            _isLoadingUser = false;
+          });
+          return;
+        }
+      }
+
+      // Fallback: Try to get from booking data if available
+      if (widget.bookingId.isNotEmpty && widget.bookingId != 'null') {
         final bookingDoc = await firestore.collection('bookings').doc(widget.bookingId).get();
         if (bookingDoc.exists) {
           final bookingData = bookingDoc.data() as Map<String, dynamic>;
+          final userEmail = bookingData['userEmail']?.toString() ?? 'Unknown';
           setState(() {
             _userData = {
-              'name': bookingData['userEmail']?.toString()?.split('@').first ?? 'User',
-              'email': bookingData['userEmail']?.toString() ?? 'No email',
+              'name': userEmail.split('@').first,
+              'email': userEmail,
               'phone': 'Not available',
               'profilePath': '',
             };
             _isLoadingUser = false;
           });
-        } else {
-          setState(() {
-            _userData = {
-              'name': 'Unknown User',
-              'email': 'Unknown',
-              'phone': 'Not available',
-              'profilePath': '',
-            };
-            _isLoadingUser = false;
-          });
+          return;
         }
       }
+
+      // Ultimate fallback
+      setState(() {
+        _userData = {
+          'name': 'User',
+          'email': 'Not available',
+          'phone': 'Not available',
+          'profilePath': '',
+        };
+        _isLoadingUser = false;
+      });
+
     } catch (e) {
       debugPrint("Error fetching user data: $e");
       setState(() {
         _userData = {
-          'name': 'Error loading',
-          'email': 'Unknown',
+          'name': 'User',
+          'email': 'Not available',
           'phone': 'Not available',
           'profilePath': '',
         };
@@ -213,7 +247,6 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     }
   }
 
-  // NEW: Direct polyline drawing (simplified approach)
   Future<void> _drawDirectPolyline() async {
     if (_currentLatLng.value == null || _destination == null) return;
 
@@ -332,25 +365,14 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         if (await canLaunchUrl(url)) {
           await launchUrl(url);
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Could not launch Google Maps',
-                style: GoogleFonts.quicksand(fontWeight: FontWeight.w600),
-              ),
-              backgroundColor: Colors.red,
-            ),
-          );
+          _toastService.showErrorMessage('Could not launch Google Maps');
         }
       }
     }
   }
 
+  // Booking status update method (only for active requests)
   Future<void> _updateBookingStatus(String newStatus) async {
-    setState(() {
-      _isUpdatingStatus = true;
-    });
-
     try {
       final firestore = FirebaseFirestore.instance;
 
@@ -360,21 +382,18 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         'updatedAt': DateTime.now(),
       });
 
-      // Update room status to 'Available' so others can book
+      // Update room status in room collection
+      final roomStatus = newStatus == 'booked' ? 'Booked' : 'Available';
       await firestore.collection('room').doc(widget.roomDocumentId).update({
-        'status': 'Available',
+        'status': roomStatus,
         'updatedAt': DateTime.now(),
       });
 
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Booking $newStatus successfully!',
-            style: GoogleFonts.quicksand(fontWeight: FontWeight.w600),
-          ),
-          backgroundColor: newStatus == 'booked' ? Colors.green : Colors.orange,
-        ),
+      // Show success message using ToastService
+      _toastService.showSuccessMessage(
+        newStatus == 'booked'
+            ? 'Booking accepted successfully! Room marked as Booked.'
+            : 'Booking rejected successfully! Room marked as Available.',
       );
 
       // Close the dialog after update
@@ -382,19 +401,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
 
     } catch (e) {
       debugPrint("Error updating status: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Failed to update status: $e',
-            style: GoogleFonts.quicksand(fontWeight: FontWeight.w600),
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      setState(() {
-        _isUpdatingStatus = false;
-      });
+      _toastService.showErrorMessage('Failed to update status. Please try again.');
     }
   }
 
@@ -471,6 +478,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     final latitude = room['latitude'];
     final longitude = room['longitude'];
 
+    // Get booking status
+    final bookingStatus = room['bookingStatus']?.toString().toLowerCase() ?? 'requested';
+
     return CustomScrollView(
       controller: scrollController,
       physics: const BouncingScrollPhysics(),
@@ -480,10 +490,13 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
           child: _buildHeader(isSmallScreen, isTablet),
         ),
 
-        // User Information Section - NEW
-        SliverToBoxAdapter(
-          child: _buildUserInfoSection(isSmallScreen, isTablet),
-        ),
+        // User Information Section - Only show if shouldShowUserInfo is true
+        if (widget.shouldShowUserInfo)
+          SliverToBoxAdapter(
+            child: _isLoadingUser
+                ? _buildUserInfoShimmer(isSmallScreen, isTablet)
+                : _buildUserInfoSection(isSmallScreen, isTablet),
+          ),
 
         // Main Image
         SliverToBoxAdapter(
@@ -575,7 +588,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
 
                         SizedBox(width: isTablet ? 16 : (isSmallScreen ? 8 : 10)),
 
-                        // Room Status Button - Shows "Requested" (since this is owner view)
+                        // Room Status Button - Shows booking status
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
@@ -583,19 +596,17 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                           ),
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(8),
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFFFF9800), Color(0xFFF57C00)],
-                            ),
+                            gradient: _getStatusGradient(bookingStatus),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFFFF9800).withOpacity(0.3),
+                                color: _getStatusColor(bookingStatus).withOpacity(0.3),
                                 blurRadius: 5,
                                 offset: const Offset(0, 2),
                               ),
                             ],
                           ),
                           child: Text(
-                            "Requested",
+                            _getStatusText(bookingStatus),
                             style: GoogleFonts.quicksand(
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
@@ -947,12 +958,13 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
           ),
         ),
 
-        // Accept/Reject Buttons - NEW SECTION (REVERSED POSITIONS)
-        SliverToBoxAdapter(
-          child: _buildActionButtons(isSmallScreen, isTablet),
-        ),
+        // Only show action buttons for active requests (not history view and status is requested)
+        if (!widget.isHistoryView && bookingStatus == 'requested')
+          SliverToBoxAdapter(
+            child: _buildActionButtons(isSmallScreen, isTablet),
+          ),
 
-        // Bottom spacing
+        // Bottom spacing - REMOVED the booking status section for history view
         SliverToBoxAdapter(
           child: SizedBox(height: isTablet ? 20 : (isSmallScreen ? 15 : 20)),
         ),
@@ -981,7 +993,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
           // Center aligned title
           Center(
             child: Text(
-              "Booking Request Details",
+              widget.isHistoryView ? "Booking History Details" : "Booking Request Details",
               style: GoogleFonts.quicksand(
                 fontSize: isTablet ? 24 : (isSmallScreen ? 18 : 20),
                 fontWeight: FontWeight.w800,
@@ -995,10 +1007,15 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   }
 
   Widget _buildUserInfoSection(bool isSmallScreen, bool isTablet) {
-    final userName = _userData?['name']?.toString() ?? 'Unknown User';
-    final userEmail = _userData?['email']?.toString() ?? 'No email';
-    final userPhone = _userData?['phone']?.toString() ?? 'Not available';
-    final userPhoto = _userData?['profilePath']?.toString();
+    // Only show if we have user data
+    if (_userData == null) {
+      return const SizedBox.shrink();
+    }
+
+    final userName = _userData!['name']?.toString() ?? 'User';
+    final userEmail = _userData!['email']?.toString() ?? 'No email';
+    final userPhone = _userData!['phone']?.toString() ?? 'Not available';
+    final userPhoto = _userData!['profilePath']?.toString();
 
     return Padding(
       padding: EdgeInsets.symmetric(
@@ -1024,7 +1041,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         ),
         child: Row(
           children: [
-            // User Photo - Reduced size
+            // User Photo
             Container(
               width: isTablet ? 50 : (isSmallScreen ? 40 : 45),
               height: isTablet ? 50 : (isSmallScreen ? 40 : 45),
@@ -1075,7 +1092,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
             ),
             SizedBox(width: isTablet ? 14 : (isSmallScreen ? 10 : 12)),
 
-            // User Details - Small font
+            // User Details
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1096,7 +1113,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       Icon(
                         Icons.email_rounded,
                         size: isTablet ? 14 : (isSmallScreen ? 12 : 13),
-                        color: Colors.deepOrange, // Changed to black
+                        color: Colors.deepOrange,
                       ),
                       SizedBox(width: isTablet ? 6 : (isSmallScreen ? 4 : 5)),
                       Expanded(
@@ -1104,8 +1121,8 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                           userEmail,
                           style: GoogleFonts.quicksand(
                             fontSize: isTablet ? 12 : (isSmallScreen ? 10 : 11),
-                            fontWeight: FontWeight.w600, // Made bolder
-                            color: const Color(0xFF1E293B), // Changed to black
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF1E293B),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1119,15 +1136,15 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       Icon(
                         Icons.phone_rounded,
                         size: isTablet ? 14 : (isSmallScreen ? 12 : 13),
-                        color: Colors.blue, // Changed to black
+                        color: Colors.blue,
                       ),
                       SizedBox(width: isTablet ? 6 : (isSmallScreen ? 4 : 5)),
                       Text(
                         userPhone,
                         style: GoogleFonts.quicksand(
                           fontSize: isTablet ? 12 : (isSmallScreen ? 10 : 11),
-                          fontWeight: FontWeight.w600, // Made bolder
-                          color: const Color(0xFF1E293B), // Changed to black
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF1E293B),
                         ),
                       ),
                     ],
@@ -1164,61 +1181,133 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   }
 
   Widget _buildUserInfoShimmer(bool isSmallScreen, bool isTablet) {
-    return Shimmer.fromColors(
-      baseColor: Colors.grey.shade300,
-      highlightColor: Colors.grey.shade100,
-      child: Row(
-        children: [
-          // User Photo Shimmer - Reduced size
-          Container(
-            width: isTablet ? 50 : (isSmallScreen ? 40 : 45),
-            height: isTablet ? 50 : (isSmallScreen ? 40 : 45),
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white,
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+        vertical: isTablet ? 8 : (isSmallScreen ? 8 : 12),
+      ),
+      child: Shimmer.fromColors(
+        baseColor: Colors.grey.shade300,
+        highlightColor: Colors.grey.shade100,
+        period: const Duration(milliseconds: 1500),
+        child: Container(
+          padding: EdgeInsets.all(isTablet ? 16 : (isSmallScreen ? 12 : 14)),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+            border: Border.all(
+              color: const Color(0xFFE2E8F0),
+              width: 1.0,
             ),
           ),
-          SizedBox(width: isTablet ? 14 : (isSmallScreen ? 10 : 12)),
+          child: Row(
+            children: [
+              // User Photo Shimmer with circle shape
+              Container(
+                width: isTablet ? 50 : (isSmallScreen ? 40 : 45),
+                height: isTablet ? 50 : (isSmallScreen ? 40 : 45),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white,
+                  border: Border.all(
+                    color: const Color(0xFFE2E8F0),
+                    width: 1.5,
+                  ),
+                ),
+              ),
+              SizedBox(width: isTablet ? 14 : (isSmallScreen ? 10 : 12)),
 
-          // User Details Shimmer
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 120,
-                  height: isTablet ? 16 : 14,
-                  color: Colors.white,
-                  margin: EdgeInsets.only(bottom: isTablet ? 4 : 2),
-                ),
-                Container(
-                  width: 180,
-                  height: isTablet ? 12 : 11,
-                  color: Colors.white,
-                  margin: EdgeInsets.only(bottom: isTablet ? 2 : 1),
-                ),
-                Container(
-                  width: 150,
-                  height: isTablet ? 12 : 11,
-                  color: Colors.white,
-                ),
-              ],
-            ),
-          ),
+              // User Details Shimmer with better animation
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Name shimmer
+                    Container(
+                      width: double.infinity,
+                      height: isTablet ? 16 : 14,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      margin: EdgeInsets.only(bottom: isTablet ? 6 : 4),
+                    ),
 
-          // Messaging icon placeholder
-          Container(
-            width: isTablet ? 36 : (isSmallScreen ? 30 : 32),
-            height: isTablet ? 36 : (isSmallScreen ? 30 : 32),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(isTablet ? 10 : 8),
-            ),
+                    // Email row shimmer
+                    Row(
+                      children: [
+                        Container(
+                          width: isTablet ? 14 : (isSmallScreen ? 12 : 13),
+                          height: isTablet ? 14 : (isSmallScreen ? 12 : 13),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        SizedBox(width: isTablet ? 6 : (isSmallScreen ? 4 : 5)),
+                        Expanded(
+                          child: Container(
+                            height: isTablet ? 12 : 11,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    SizedBox(height: isTablet ? 4 : (isSmallScreen ? 3 : 4)),
+
+                    // Phone row shimmer
+                    Row(
+                      children: [
+                        Container(
+                          width: isTablet ? 14 : (isSmallScreen ? 12 : 13),
+                          height: isTablet ? 14 : (isSmallScreen ? 12 : 13),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        SizedBox(width: isTablet ? 6 : (isSmallScreen ? 4 : 5)),
+                        Container(
+                          width: 120,
+                          height: isTablet ? 12 : 11,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Messaging icon placeholder
+              Container(
+                width: isTablet ? 36 : (isSmallScreen ? 30 : 32),
+                height: isTablet ? 36 : (isSmallScreen ? 30 : 32),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(isTablet ? 10 : 8),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
+
   Widget _buildMainImageSection(List<String> images, bool isSmallScreen, bool isTablet) {
     if (images.isEmpty) {
       return Padding(
@@ -2134,7 +2223,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                     ],
                   ),
                   child: ElevatedButton(
-                    onPressed: _isUpdatingStatus ? null : () => _updateBookingStatus('rejected'),
+                    onPressed: () => _updateBookingStatus('rejected'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.transparent,
                       foregroundColor: Colors.white,
@@ -2144,16 +2233,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       elevation: 0,
                       padding: EdgeInsets.zero,
                     ),
-                    child: _isUpdatingStatus
-                        ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: Colors.white,
-                      ),
-                    )
-                        : Row(
+                    child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
@@ -2199,7 +2279,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                     ],
                   ),
                   child: ElevatedButton(
-                    onPressed: _isUpdatingStatus ? null : () => _updateBookingStatus('booked'),
+                    onPressed: () => _updateBookingStatus('booked'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.transparent,
                       foregroundColor: Colors.white,
@@ -2209,20 +2289,11 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       elevation: 0,
                       padding: EdgeInsets.zero,
                     ),
-                    child: _isUpdatingStatus
-                        ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: Colors.white,
-                      ),
-                    )
-                        : Row(
+                    child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          Icons.verified_rounded, // Verified icon
+                          Icons.verified_rounded,
                           size: isTablet ? 20 : (isSmallScreen ? 16 : 18),
                         ),
                         SizedBox(width: isTablet ? 8 : (isSmallScreen ? 4 : 6)),
@@ -2240,23 +2311,73 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
               ),
             ],
           ),
-
-          // Info text
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Text(
-              "Note: Room will become available for others after decision",
-              textAlign: TextAlign.center,
-              style: GoogleFonts.quicksand(
-                fontSize: isTablet ? 12 : (isSmallScreen ? 10 : 11),
-                color: const Color(0xFF64748B),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
         ],
       ),
     );
+  }
+
+  // Helper methods for status display
+  String _getStatusText(String status) {
+    switch (status.toLowerCase()) {
+      case 'requested':
+        return 'Requested';
+      case 'booked':
+        return 'Booked';
+      case 'cancelled':
+        return 'Cancelled';
+      case 'rejected':
+        return 'Rejected';
+      case 'pending':
+        return 'Pending';
+      default:
+        return 'Available';
+    }
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'requested':
+        return const Color(0xFFFF9800);
+      case 'booked':
+        return const Color(0xFF7C3AED);
+      case 'cancelled':
+        return const Color(0xFFEF4444);
+      case 'rejected':
+        return const Color(0xFF6B7280);
+      case 'pending':
+        return const Color(0xFFF59E0B);
+      default:
+        return const Color(0xFF4CAF50);
+    }
+  }
+
+  LinearGradient _getStatusGradient(String status) {
+    switch (status.toLowerCase()) {
+      case 'requested':
+        return const LinearGradient(
+          colors: [Color(0xFFFF9800), Color(0xFFF57C00)],
+        );
+      case 'booked':
+        return const LinearGradient(
+          colors: [Color(0xFF7C3AED), Color(0xFF5B21B6)],
+        );
+      case 'cancelled':
+        return const LinearGradient(
+          colors: [Color(0xFFEF4444), Color(0xFFDC2626)],
+        );
+      case 'rejected':
+        return const LinearGradient(
+          colors: [Color(0xFF6B7280), Color(0xFF4B5563)],
+        );
+      case 'pending':
+        return const LinearGradient(
+          colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
+        );
+      default:
+        return const LinearGradient(
+          colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)],
+        );
+    }
   }
 }
 

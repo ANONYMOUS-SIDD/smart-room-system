@@ -14,7 +14,7 @@ class HistoryScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: const ModernAppBar(title: "History"), // Using your existing ModernAppBar
+      appBar: const ModernAppBar(title: "Chat"), // Using your existing ModernAppBar
       body: Center(
         child: SingleChildScrollView(
           child: Column(
