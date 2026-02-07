@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../widgets/modern_app_bar.dart';
 import 'detail_dialog.dart';
@@ -23,9 +24,19 @@ class _HomeScreenState extends State<HomeScreen> {
   String _selectedSort = "Price";
   bool _isPriceAscending = true;
   bool _isDistanceAscending = true;
+  String? _currentUserSessionId; // Store current user's sessionId
+  bool _isLoadingSessionId = true; // Loading state for sessionId
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
   final StreamController<bool> _refreshController = StreamController<bool>.broadcast();
+
+  @override
+  void initState() {
+    super.initState();
+    print('🏠 HomeScreen initState - Starting sessionId fetch');
+    _fetchCurrentUserSessionId();
+  }
 
   @override
   void dispose() {
@@ -34,7 +45,72 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _refreshData() {
+    print('🔄 HomeScreen _refreshData called');
     _refreshController.add(true);
+  }
+
+  // Fetch current user's sessionId from Firestore
+  Future<void> _fetchCurrentUserSessionId() async {
+    print('🔍 Starting _fetchCurrentUserSessionId');
+    try {
+      final currentUser = _auth.currentUser;
+      print('👤 Current Firebase Auth user: ${currentUser?.uid}');
+
+      if (currentUser == null) {
+        print('⚠️ No user logged in via Firebase Auth');
+        setState(() {
+          _isLoadingSessionId = false;
+          _currentUserSessionId = null;
+        });
+        return;
+      }
+
+      print('📥 Fetching user document from Firestore: users/${currentUser.uid}');
+      final userDoc = await _firestore
+          .collection('User')
+          .doc(currentUser.uid)
+          .get();
+
+      if (userDoc.exists) {
+        final userData = userDoc.data() as Map<String, dynamic>;
+        print('✅ User document found: ${userData.keys}');
+
+        // Debug: Print all fields to see what's available
+        print('📊 User data fields:');
+        userData.forEach((key, value) {
+          print('   $key: $value (${value.runtimeType})');
+        });
+
+        // Try both 'SessionId' and 'sessionId' field names
+        final sessionId = userData['SessionId']?.toString() ??
+            userData['sessionId']?.toString() ??
+            userData['sessionID']?.toString() ??
+            userData['SessionID']?.toString() ??
+            '';
+
+        print('🔑 Extracted sessionId: "$sessionId" (length: ${sessionId.length})');
+
+        setState(() {
+          _currentUserSessionId = sessionId.isNotEmpty ? sessionId : null;
+          _isLoadingSessionId = false;
+        });
+
+        print('✅ SessionId fetch complete. Current user sessionId: "$_currentUserSessionId"');
+        _refreshData(); // Refresh the list once we have sessionId
+      } else {
+        print('❌ User document does not exist in Firestore');
+        setState(() {
+          _isLoadingSessionId = false;
+          _currentUserSessionId = null;
+        });
+      }
+    } catch (e) {
+      print('❌ Error fetching user sessionId: $e');
+      setState(() {
+        _isLoadingSessionId = false;
+        _currentUserSessionId = null;
+      });
+    }
   }
 
   // Show sort options dialog
@@ -373,6 +449,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final screenWidth = MediaQuery.of(context).size.width;
     final isSmallScreen = screenWidth < 360;
 
+    print('🏠 HomeScreen build - isLoadingSessionId: $_isLoadingSessionId, currentUserSessionId: "$_currentUserSessionId"');
+
     return Scaffold(
       backgroundColor: ModernColors.background,
       appBar: ModernAppBar(
@@ -389,13 +467,24 @@ class _HomeScreenState extends State<HomeScreen> {
         child: StreamBuilder<bool>(
           stream: Stream<bool>.value(true).asyncExpand((_) => _refreshController.stream),
           builder: (context, refreshSnapshot) {
+            print('🔄 StreamBuilder refreshSnapshot: ${refreshSnapshot.connectionState}');
+
+            // Show shimmer loading while fetching sessionId
+            if (_isLoadingSessionId) {
+              print('⏳ Showing shimmer loading while fetching sessionId');
+              return _buildShimmerLoading(isSmallScreen);
+            }
+
             return StreamBuilder<QuerySnapshot>(
               stream: _firestore
                   .collection('room')
                   .orderBy('createdAt', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
+                print('📊 Room StreamBuilder state: ${snapshot.connectionState}, hasData: ${snapshot.hasData}, hasError: ${snapshot.hasError}');
+
                 if (snapshot.hasError) {
+                  print('❌ Error loading rooms: ${snapshot.error}');
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(20.0),
@@ -413,15 +502,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 if (snapshot.connectionState == ConnectionState.waiting &&
                     !snapshot.hasData) {
+                  print('⏳ Showing shimmer loading for room data');
                   return _buildShimmerLoading(isSmallScreen);
                 }
 
                 final rooms = snapshot.data?.docs ?? [];
+                print('🏘️ Total rooms from Firestore: ${rooms.length}');
+
+                // Debug: Print first room's data
+                if (rooms.isNotEmpty) {
+                  final firstRoom = rooms.first.data() as Map<String, dynamic>;
+                  print('🔍 First room keys: ${firstRoom.keys}');
+                  print('🔍 First room SessionId/sessionId: ${firstRoom['SessionId'] ?? firstRoom['sessionId']}');
+                }
+
                 final filteredRooms = _applyFiltersAndSort(rooms);
+                print('✅ After filtering: ${filteredRooms.length} rooms (filtered out ${rooms.length - filteredRooms.length})');
 
                 // If no rooms found, show empty state
                 if (filteredRooms.isEmpty) {
-                  return _buildNoRoomsFound();
+                  print('📭 No rooms found after filtering');
+                  return _buildNoRoomsFound(rooms.length);
                 }
 
                 return ListView(
@@ -467,6 +568,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       final index = entry.key;
                       final roomDoc = entry.value;
                       final room = roomDoc.data() as Map<String, dynamic>;
+
+                      // Debug: Print room details for first few rooms
+                      if (index < 3) {
+                        print('🏠 Room $index - ID: ${roomDoc.id}, SessionId: ${room['SessionId'] ?? room['sessionId']}, Owner matches current user: ${_currentUserSessionId != null ? (room['SessionId'] == _currentUserSessionId || room['sessionId'] == _currentUserSessionId) : 'N/A'}');
+                      }
+
                       return FadeInWidget(
                         delay: Duration(milliseconds: 100 + (index * 100)),
                         child: CompactRoomCardFromFirestore(
@@ -489,7 +596,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildNoRoomsFound() {
+  Widget _buildNoRoomsFound(int totalRooms) {
+    // Check if there are rooms but all are filtered out because they belong to the user
+    final hasUserRooms = totalRooms > 0 && _currentUserSessionId != null;
+
+    print('📭 _buildNoRoomsFound - totalRooms: $totalRooms, hasUserRooms: $hasUserRooms, currentUserSessionId: "$_currentUserSessionId"');
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(40.0),
@@ -503,7 +615,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 24.0),
             Text(
-              'No Rooms Found',
+              hasUserRooms ? 'No Other Rooms Available' : 'No Rooms Found',
               style: GoogleFonts.quicksand(
                 fontSize: 20.0,
                 fontWeight: FontWeight.w700,
@@ -512,7 +624,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 12.0),
             Text(
-              'Check back later for new listings',
+              hasUserRooms
+                  ? 'All available rooms are uploaded by you.\nCheck back later for rooms from other users.'
+                  : 'Check back later for new listings',
               style: GoogleFonts.quicksand(
                 fontSize: 15.0,
                 color: ModernColors.onSurfaceVariant,
@@ -520,6 +634,18 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               textAlign: TextAlign.center,
             ),
+            if (_currentUserSessionId != null) ...[
+              const SizedBox(height: 20.0),
+              Text(
+                'Debug: Your SessionId: "$_currentUserSessionId"',
+                style: GoogleFonts.quicksand(
+                  fontSize: 12.0,
+                  color: Colors.grey,
+                  fontWeight: FontWeight.w500,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ],
         ),
       ),
@@ -527,14 +653,80 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   List<DocumentSnapshot> _applyFiltersAndSort(List<DocumentSnapshot> rooms) {
+    print('🔍 Starting _applyFiltersAndSort with ${rooms.length} rooms');
+    print('👤 Current user sessionId: "$_currentUserSessionId"');
+
     List<DocumentSnapshot> filtered = List.from(rooms);
+
+    // Debug: Print all rooms before filtering
+    print('📋 Rooms before filtering:');
+    for (var i = 0; i < rooms.length; i++) {
+      final room = rooms[i].data() as Map<String, dynamic>;
+      final sessionId = room['SessionId']?.toString() ?? room['sessionId']?.toString() ?? 'No sessionId';
+      final status = room['status']?.toString() ?? 'No status';
+      print('   Room $i: status="$status", sessionId="$sessionId"');
+    }
 
     // Filter out rooms with status "Booked"
     filtered = filtered.where((doc) {
       final room = doc.data() as Map<String, dynamic>;
       final status = room['status']?.toString() ?? '';
-      return status.toLowerCase() != 'booked';
+      final isBooked = status.toLowerCase() == 'booked';
+      if (isBooked) {
+        print('   ❌ Filtering out room (Booked): status="$status"');
+      }
+      return !isBooked;
     }).toList();
+
+    print('✅ After booked filter: ${filtered.length} rooms');
+
+    // Filter out rooms uploaded by current user (where SessionId matches)
+    if (_currentUserSessionId != null && _currentUserSessionId!.isNotEmpty) {
+      print('🔑 Filtering by sessionId: "$_currentUserSessionId"');
+
+      filtered = filtered.where((doc) {
+        final room = doc.data() as Map<String, dynamic>;
+
+        // Try multiple possible field names
+        final List<String> possibleSessionIdFields = [
+          'SessionId',
+          'sessionId',
+          'SessionID',
+          'sessionID',
+          'ownerId',
+          'ownerID',
+          'userId',
+          'userID',
+        ];
+
+        String roomSessionId = '';
+        for (var field in possibleSessionIdFields) {
+          if (room[field] != null && room[field].toString().isNotEmpty) {
+            roomSessionId = room[field].toString();
+            break;
+          }
+        }
+
+        final matchesCurrentUser = roomSessionId == _currentUserSessionId;
+
+        if (roomSessionId.isEmpty) {
+          print('   ⚠️ Room has no sessionId field, keeping it');
+          return true; // Keep rooms without sessionId (might be from other users)
+        }
+
+        if (matchesCurrentUser) {
+          print('   ❌ Filtering out room (Owned by current user): roomSessionId="$roomSessionId", currentUserSessionId="$_currentUserSessionId"');
+          return false;
+        } else {
+          print('   ✅ Keeping room: roomSessionId="$roomSessionId", currentUserSessionId="$_currentUserSessionId"');
+          return true;
+        }
+      }).toList();
+    } else {
+      print('⚠️ No currentUserSessionId available, skipping owner filter');
+    }
+
+    print('✅ After owner filter: ${filtered.length} rooms');
 
     // Apply sorting
     filtered.sort((a, b) {
@@ -564,6 +756,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     });
 
+    print('✅ Final filtered rooms: ${filtered.length}');
     return filtered;
   }
 
@@ -604,11 +797,11 @@ class _HomeScreenState extends State<HomeScreen> {
             offset: const Offset(0, 3),
           ),
         ],
-        border: Border.all(  // This line was missing closing parenthesis
+        border: Border.all(
           color: ModernColors.outline.withOpacity(0.15),
           width: 1.0,
         ),
-      ),  // Added missing closing parenthesis here
+      ),
       child: GestureDetector(
         onTap: () => _showSortOptionsDialog(context, isSmallScreen),
         child: Container(
@@ -689,34 +882,59 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: EdgeInsets.all(isSmallScreen ? 10.0 : 12.0),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(isSmallScreen ? 14.0 : 16.0),
-            color: Colors.white,
+            color: ModernColors.surface,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: isSmallScreen ? 6.0 : 8.0,
+                offset: const Offset(0, 3),
+              ),
+            ],
+            border: Border.all(
+              color: ModernColors.outline.withOpacity(0.15),
+              width: 1.0,
+            ),
           ),
-          child: Container(
-            height: isSmallScreen ? 40.0 : 44.0,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(isSmallScreen ? 10.0 : 12.0),
-              color: Colors.white,
+          child: Shimmer.fromColors(
+            baseColor: Colors.grey.shade300,
+            highlightColor: Colors.grey.shade100,
+            child: Container(
+              height: isSmallScreen ? 40.0 : 44.0,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(isSmallScreen ? 10.0 : 12.0),
+                color: Colors.white,
+              ),
             ),
           ),
         ),
         SizedBox(height: isSmallScreen ? 16.0 : 20.0),
         Padding(
           padding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 16.0 : 20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 200.0,
-                height: 20.0,
-                color: Colors.white,
-              ),
-              SizedBox(height: 2.0),
-              Container(
-                width: 150.0,
-                height: 16.0,
-                color: Colors.white,
-              ),
-            ],
+          child: Shimmer.fromColors(
+            baseColor: Colors.grey.shade300,
+            highlightColor: Colors.grey.shade100,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  height: isSmallScreen ? 20.0 : 22.0,
+                  width: 200.0,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(isSmallScreen ? 6.0 : 8.0),
+                  ),
+                ),
+                SizedBox(height: 8.0),
+                Container(
+                  height: isSmallScreen ? 16.0 : 18.0,
+                  width: 150.0,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(isSmallScreen ? 5.0 : 6.0),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         SizedBox(height: isSmallScreen ? 1.0 : 16.0),
@@ -724,124 +942,177 @@ class _HomeScreenState extends State<HomeScreen> {
         ...List.generate(3, (index) {
           return FadeInWidget(
             delay: Duration(milliseconds: 100 + (index * 100)),
-            child: Container(
-              margin: EdgeInsets.symmetric(
-                horizontal: isSmallScreen ? 16.0 : 20.0,
-                vertical: 8.0,
-              ),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(isSmallScreen ? 16.0 : 20.0),
-                color: Colors.white,
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    height: isSmallScreen ? 150.0 : 170.0,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.only(
-                        topLeft: Radius.circular(isSmallScreen ? 16.0 : 20.0),
-                        topRight: Radius.circular(isSmallScreen ? 16.0 : 20.0),
+            child: Shimmer.fromColors(
+              baseColor: Colors.grey.shade300,
+              highlightColor: Colors.grey.shade100,
+              child: Container(
+                margin: EdgeInsets.symmetric(
+                  horizontal: isSmallScreen ? 16.0 : 20.0,
+                  vertical: 8.0,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(isSmallScreen ? 16.0 : 20.0),
+                  color: Colors.white,
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      height: isSmallScreen ? 150.0 : 170.0,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(isSmallScreen ? 16.0 : 20.0),
+                          topRight: Radius.circular(isSmallScreen ? 16.0 : 20.0),
+                        ),
                       ),
                     ),
-                  ),
-                  Padding(
-                    padding: EdgeInsets.all(isSmallScreen ? 12.0 : 16.0),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
+                    Padding(
+                      padding: EdgeInsets.all(isSmallScreen ? 12.0 : 16.0),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      height: 20.0,
+                                      width: 150.0,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(6.0),
+                                      ),
+                                    ),
+                                    SizedBox(height: 6.0),
+                                    Container(
+                                      height: 16.0,
+                                      width: 200.0,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(5.0),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                height: 24.0,
+                                width: 60.0,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8.0),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: isSmallScreen ? 10.0 : 12.0),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Container(
+                                height: 28.0,
+                                width: 100.0,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(16.0),
+                                ),
+                              ),
+                              Container(
+                                height: 28.0,
+                                width: 100.0,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(16.0),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: isSmallScreen ? 12.0 : 14.0),
+                          Container(
+                            padding: EdgeInsets.all(12.0),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10.0),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                for (int j = 0; j < 3; j++)
+                                  Column(
+                                    children: [
+                                      Container(
+                                        height: 20.0,
+                                        width: 20.0,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(10.0),
+                                        ),
+                                      ),
+                                      SizedBox(height: 4.0),
+                                      Container(
+                                        height: 12.0,
+                                        width: 40.0,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(4.0),
+                                        ),
+                                      ),
+                                      SizedBox(height: 4.0),
+                                      Container(
+                                        height: 16.0,
+                                        width: 60.0,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(5.0),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: isSmallScreen ? 12.0 : 14.0),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Container(
-                                    width: 150.0,
-                                    height: 20.0,
-                                    color: Colors.white,
+                                    height: 14.0,
+                                    width: 80.0,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(4.0),
+                                    ),
                                   ),
-                                  SizedBox(height: 6.0),
+                                  SizedBox(height: 2.0),
                                   Container(
-                                    width: 200.0,
-                                    height: 16.0,
-                                    color: Colors.white,
+                                    height: 24.0,
+                                    width: 120.0,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(6.0),
+                                    ),
                                   ),
                                 ],
                               ),
-                            ),
-                            Container(
-                              width: 60.0,
-                              height: 24.0,
-                              color: Colors.white,
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: isSmallScreen ? 10.0 : 12.0),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Container(
-                              width: 100.0,
-                              height: 28.0,
-                              color: Colors.white,
-                            ),
-                            Container(
-                              width: 100.0,
-                              height: 28.0,
-                              color: Colors.white,
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: isSmallScreen ? 12.0 : 14.0),
-                        Container(
-                          padding: EdgeInsets.all(12.0),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10.0),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                            children: [
-                              for (int j = 0; j < 3; j++)
-                                Container(
-                                  width: 80.0,
-                                  height: 60.0,
+                              Container(
+                                height: 34.0,
+                                width: 100.0,
+                                decoration: BoxDecoration(
                                   color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8.0),
                                 ),
+                              ),
                             ],
                           ),
-                        ),
-                        SizedBox(height: isSmallScreen ? 12.0 : 14.0),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  width: 80.0,
-                                  height: 14.0,
-                                  color: Colors.white,
-                                ),
-                                SizedBox(height: 2.0),
-                                Container(
-                                  width: 120.0,
-                                  height: 24.0,
-                                  color: Colors.white,
-                                ),
-                              ],
-                            ),
-                            Container(
-                              width: 100.0,
-                              height: 34.0,
-                              color: Colors.white,
-                            ),
-                          ],
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );
