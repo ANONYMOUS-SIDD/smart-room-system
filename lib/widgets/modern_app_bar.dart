@@ -19,8 +19,15 @@ class ModernColors {
 /// Provides a consistent header component with back navigation support
 class ModernAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title; // The title text to display in the app bar
+  final bool showAddButton; // Whether to show the add button
+  final VoidCallback? onAddPressed; // Callback when add button is pressed
 
-  const ModernAppBar({super.key, required this.title});
+  const ModernAppBar({
+    super.key,
+    required this.title,
+    this.showAddButton = false,
+    this.onAddPressed,
+  });
 
   @override
   Size get preferredSize => const Size.fromHeight(50.0); // Fixed height for app bar
@@ -117,7 +124,44 @@ class ModernAppBar extends StatelessWidget implements PreferredSizeWidget {
           ),
         ),
         centerTitle: true, // Center align the title text
-        actions: const [], // No action items by default
+        actions: showAddButton
+            ? [
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: IconButton(
+              icon: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      ModernColors.primary,
+                      ModernColors.primaryDark,
+                    ],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: ModernColors.primary.withOpacity(0.3),
+                      blurRadius: 6,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.add_rounded,
+                  size: 20,
+                  color: Colors.white,
+                ),
+              ),
+              onPressed: onAddPressed ?? () {},
+              tooltip: 'Add New Room',
+            ),
+          ),
+        ]
+            : null, // No action items by default
         flexibleSpace: ClipRRect(
           // Clips child to rounded borders
           borderRadius: const BorderRadius.vertical(

@@ -5,7 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../controllers/auth_controller.dart';
 import '../../controllers/loader_controller.dart';
 import '../../controllers/show_password_controller.dart';
-import '../../services/auth_service.dart';
+import '../../../services/auth_service.dart';
 import '../../themes/colors.dart';
 import '../auth/utils/auth_utils.dart';
 import '../auth/utils/validators.dart';
