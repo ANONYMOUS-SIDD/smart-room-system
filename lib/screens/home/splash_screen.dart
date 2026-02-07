@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lottie/lottie.dart';
 
-import '../../services/auth_service.dart';
+import '../../../services/auth_service.dart';
 import '../auth/login_screen.dart';
 import '../main/main_screen.dart';
 

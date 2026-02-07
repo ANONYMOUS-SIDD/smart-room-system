@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:smart_room/screens/home/splash_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'; // Import Supabase
 import 'package:permission_handler/permission_handler.dart'; // Import Permission Handler
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 
 import 'controllers/auth_controller.dart';
 import 'controllers/loader_controller.dart';
@@ -13,6 +14,7 @@ import 'firebase_options.dart';
 import 'services/auth_service.dart';
 import 'services/toast_service.dart';
 import 'config.dart'; // Import your config file
+import 'chat/services/chat_service.dart';
 
 /// Main Application Entry Point
 Future<void> main() async {
@@ -39,7 +41,8 @@ Future<void> main() async {
       statusBarIconBrightness: Brightness.dark, // Black Icons For Android
       statusBarBrightness: Brightness.light, // Black Icons For iOS
       systemNavigationBarColor: Colors.white, // White Navigation Bar
-      systemNavigationBarIconBrightness: Brightness.dark, // Black Navigation Icons
+      systemNavigationBarIconBrightness:
+          Brightness.dark, // Black Navigation Icons
     ),
   );
 
@@ -108,10 +111,13 @@ class AppBindings extends Bindings {
     Get.lazyPut(() => AuthService(), fenix: true);
     Get.lazyPut(() => ToastService(), fenix: true);
 
-    // Register Permission Handler Service (optional - if you want to manage permissions via GetX)
+    // Register ChatService
+    Get.lazyPut(() => ChatService(), fenix: true);
+
+    // Register Permission Handler Service
     Get.lazyPut(() => PermissionHandlerService(), fenix: true);
 
-    // Get Supabase client instance (optional - if you want to access it via GetX)
+    // Get Supabase client instance
     Get.lazyPut(() => Supabase.instance.client, fenix: true);
   }
 }
@@ -167,14 +173,46 @@ class PermissionHandlerService extends GetxService {
 }
 
 /// Main Application Home Widget
-class AppHome extends StatelessWidget {
+class AppHome extends StatefulWidget {
   const AppHome({super.key});
 
   @override
+  State<AppHome> createState() => _AppHomeState();
+}
+
+class _AppHomeState extends State<AppHome> {
+  @override
+  void initState() {
+    super.initState();
+    // Initialize chat system after app starts
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeChat();
+    });
+  }
+
+  Future<void> _initializeChat() async {
+  await Future.delayed(const Duration(seconds: 2));
+  try {
+    final chatService = Get.find<ChatService>();
+    
+    // Debug current user using alias
+    final firebase_auth.User? currentUser = firebase_auth.FirebaseAuth.instance.currentUser;
+    if (currentUser != null) {
+      print('👤 Current Firebase Auth user:');
+      print('   UID: ${currentUser.uid}');
+      print('   Email: ${currentUser.email}');
+    } else {
+      print('👤 No user logged in');
+    }
+    
+    print('✅ Chat system initialized');
+  } catch (e) {
+    print('❌ Error initializing chat: $e');
+  }
+}
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-        backgroundColor: Colors.white,
-        body: SplashScreen()
-    );
+    return Scaffold(backgroundColor: Colors.white, body: SplashScreen());
   }
 }

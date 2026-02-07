@@ -1,3 +1,4 @@
+// lib/screens/owner/owner_room_details_dialogs.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -14,7 +15,16 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:get/get.dart';
+
 import '../../services/toast_service.dart';
+import '../../chat/services/chat_service.dart';
+import '../../chat/screens/chat_screen.dart';
+import '../../chat/models/chat_user.dart';
+import '../../chat/models/chat_message.dart';
+import '../../../services/auth_service.dart';
+import '../../chat/models/conversation.dart';
+import '../../chat/screens/chat_home_screen.dart';
 
 class OwnerRoomDetailsDialog extends StatefulWidget {
   final Map<String, dynamic> room;
@@ -99,32 +109,38 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   @override
   void initState() {
     super.initState();
+    // Add debug print
+    print('📱 OwnerRoomDetailsDialog created');
+    print('   User ID from widget: ${widget.userId}');
+    print('   Room ID: ${widget.roomDocumentId}');
+    print('   Booking ID: ${widget.bookingId}');
     _controller = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: Curves.easeOutBack,
-      ),
-    );
+    _scaleAnimation = Tween<double>(
+      begin: 0.95,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
 
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: Curves.easeOut,
-      ),
-    );
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
 
     _controller.forward();
 
     // Initialize destination
-    final hasCoordinates = widget.room['latitude'] != null && widget.room['longitude'] != null;
+    final hasCoordinates =
+        widget.room['latitude'] != null && widget.room['longitude'] != null;
     if (hasCoordinates) {
-      final destinationLat = double.tryParse(widget.room['latitude'].toString());
-      final destinationLng = double.tryParse(widget.room['longitude'].toString());
+      final destinationLat = double.tryParse(
+        widget.room['latitude'].toString(),
+      );
+      final destinationLng = double.tryParse(
+        widget.room['longitude'].toString(),
+      );
       if (destinationLat != null && destinationLng != null) {
         _destination = LatLng(destinationLat, destinationLng);
       }
@@ -143,82 +159,72 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   }
 
   Future<void> _fetchUserData() async {
-    try {
-      // Don't fetch user info if not needed
-      if (!widget.shouldShowUserInfo) {
+  try {
+    if (!widget.shouldShowUserInfo) {
+      setState(() {
+        _isLoadingUser = false;
+      });
+      return;
+    }
+
+    final firestore = FirebaseFirestore.instance;
+    
+    // **CRITICAL: Get room owner ID from room data, not widget.userId**
+    final roomOwnerId = widget.room['sessionId']?.toString().trim() ?? '';
+    
+    print('🔍 Fetching room owner data for sessionId: $roomOwnerId');
+
+    if (roomOwnerId.isNotEmpty) {
+      // Query by SessionId (Firebase UID)
+      final userQuery = await firestore.collection('User')
+          .where('SessionId', isEqualTo: roomOwnerId)
+          .limit(1)
+          .get();
+
+      if (userQuery.docs.isNotEmpty) {
+        final doc = userQuery.docs.first;
+        final data = doc.data() as Map<String, dynamic>;
+        print('✅ Found room owner: ${data['Name']}');
+        
         setState(() {
+          _userData = {
+            'name': data['Name']?.toString() ?? 'Room Owner',
+            'email': data['Email']?.toString() ?? '',
+            'phone': data['Phone']?.toString() ?? '',
+            'profilePath': data['Path']?.toString() ?? '',
+            'sessionId': data['SessionId']?.toString() ?? roomOwnerId,
+          };
           _isLoadingUser = false;
         });
         return;
       }
-
-      final firestore = FirebaseFirestore.instance;
-
-      // Check if we have userId from room data
-      final userId = widget.room['userId']?.toString() ?? widget.userId;
-
-      // If we have a valid userId, fetch from User collection
-      if (userId.isNotEmpty && userId != 'null') {
-        final userDoc = await firestore.collection('User').doc(userId).get();
-
-        if (userDoc.exists) {
-          final data = userDoc.data() as Map<String, dynamic>;
-          setState(() {
-            _userData = {
-              'name': data['Name']?.toString() ?? 'Unknown',
-              'email': data['Email']?.toString() ?? 'No email',
-              'phone': data['Phone']?.toString() ?? 'Not available',
-              'profilePath': data['Path']?.toString() ?? data['profilePath']?.toString() ?? '',
-            };
-            _isLoadingUser = false;
-          });
-          return;
-        }
-      }
-
-      // Fallback: Try to get from booking data if available
-      if (widget.bookingId.isNotEmpty && widget.bookingId != 'null') {
-        final bookingDoc = await firestore.collection('bookings').doc(widget.bookingId).get();
-        if (bookingDoc.exists) {
-          final bookingData = bookingDoc.data() as Map<String, dynamic>;
-          final userEmail = bookingData['userEmail']?.toString() ?? 'Unknown';
-          setState(() {
-            _userData = {
-              'name': userEmail.split('@').first,
-              'email': userEmail,
-              'phone': 'Not available',
-              'profilePath': '',
-            };
-            _isLoadingUser = false;
-          });
-          return;
-        }
-      }
-
-      // Ultimate fallback
-      setState(() {
-        _userData = {
-          'name': 'User',
-          'email': 'Not available',
-          'phone': 'Not available',
-          'profilePath': '',
-        };
-        _isLoadingUser = false;
-      });
-
-    } catch (e) {
-      debugPrint("Error fetching user data: $e");
-      setState(() {
-        _userData = {
-          'name': 'User',
-          'email': 'Not available',
-          'phone': 'Not available',
-          'profilePath': '',
-        };
-        _isLoadingUser = false;
-      });
     }
+
+    // Fallback
+    setState(() {
+      _userData = {
+        'name': 'Room Owner',
+        'email': 'Not available',
+        'phone': 'Not available',
+        'profilePath': '',
+        'sessionId': roomOwnerId,
+      };
+      _isLoadingUser = false;
+    });
+  } catch (e) {
+    print("❌ Error fetching user data: $e");
+    setState(() {
+      _userData = {
+        'name': 'Room Owner',
+        'email': 'Not available',
+        'phone': 'Not available',
+        'profilePath': '',
+        'sessionId': widget.room['sessionId']?.toString() ?? '',
+      };
+      _isLoadingUser = false;
+    });
   }
+}
 
   Future<void> _getLocationAndDrawPolyline() async {
     try {
@@ -252,12 +258,15 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
 
     try {
       // Try OSRM API first
-      final url = 'https://router.project-osrm.org/route/v1/foot/'
+      final url =
+          'https://router.project-osrm.org/route/v1/foot/'
           '${_currentLatLng.value!.longitude},${_currentLatLng.value!.latitude};'
           '${_destination!.longitude},${_destination!.latitude}'
           '?overview=full&geometries=geojson';
 
-      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 5));
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -327,7 +336,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   }
 
   void _toggleMapType() {
-    _currentMapType.value = _currentMapType.value == MapType.normal ? MapType.satellite : MapType.normal;
+    _currentMapType.value = _currentMapType.value == MapType.normal
+        ? MapType.satellite
+        : MapType.normal;
   }
 
   Future<void> _goToCurrentLocation() async {
@@ -361,7 +372,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
       final lat = double.tryParse(latitude.toString());
       final lng = double.tryParse(longitude.toString());
       if (lat != null && lng != null) {
-        final url = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
+        final url = Uri.parse(
+          'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng',
+        );
         if (await canLaunchUrl(url)) {
           await launchUrl(url);
         } else {
@@ -398,10 +411,11 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
 
       // Close the dialog after update
       _closeSheet();
-
     } catch (e) {
       debugPrint("Error updating status: $e");
-      _toastService.showErrorMessage('Failed to update status. Please try again.');
+      _toastService.showErrorMessage(
+        'Failed to update status. Please try again.',
+      );
     }
   }
 
@@ -416,10 +430,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
       builder: (context, child) {
         return Opacity(
           opacity: _fadeAnimation.value,
-          child: Transform.scale(
-            scale: _scaleAnimation.value,
-            child: child,
-          ),
+          child: Transform.scale(scale: _scaleAnimation.value, child: child),
         );
       },
       child: GestureDetector(
@@ -459,7 +470,11 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     );
   }
 
-  Widget _buildContent(ScrollController scrollController, bool isSmallScreen, bool isTablet) {
+  Widget _buildContent(
+    ScrollController scrollController,
+    bool isSmallScreen,
+    bool isTablet,
+  ) {
     final room = widget.room;
     final images = _images;
 
@@ -469,26 +484,29 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     final location = "$walkTime walk from KU Gate";
     final water = room['water']?.toString() ?? "Available";
     final sunlight = room['sunlight']?.toString() ?? "Good";
-    final hasBathroom = room['bathroom']?.toString() == "Yes" || room['bathroom'] == true;
+    final hasBathroom =
+        room['bathroom']?.toString() == "Yes" || room['bathroom'] == true;
     final size = "${room['size']?.toString() ?? '0'} Sq Ft";
-    final priceNPR = room['price'] is int ? room['price'] as int : int.tryParse(room['price']?.toString() ?? '0') ?? 0;
+    final priceNPR = room['price'] is int
+        ? room['price'] as int
+        : int.tryParse(room['price']?.toString() ?? '0') ?? 0;
     final distance = _getFormattedDistance();
     final internetSpeed = "${room['internet']?.toString() ?? '0'} Mbps";
-    final fullLocation = room['location']?.toString() ?? "Location not specified";
+    final fullLocation =
+        room['location']?.toString() ?? "Location not specified";
     final latitude = room['latitude'];
     final longitude = room['longitude'];
 
     // Get booking status
-    final bookingStatus = room['bookingStatus']?.toString().toLowerCase() ?? 'requested';
+    final bookingStatus =
+        room['bookingStatus']?.toString().toLowerCase() ?? 'requested';
 
     return CustomScrollView(
       controller: scrollController,
       physics: const BouncingScrollPhysics(),
       slivers: [
         // Header with drag handle
-        SliverToBoxAdapter(
-          child: _buildHeader(isSmallScreen, isTablet),
-        ),
+        SliverToBoxAdapter(child: _buildHeader(isSmallScreen, isTablet)),
 
         // User Information Section - Only show if shouldShowUserInfo is true
         if (widget.shouldShowUserInfo)
@@ -519,7 +537,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
             child: Container(
               decoration: BoxDecoration(
                 color: ModernColors.surface,
-                borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+                borderRadius: BorderRadius.circular(
+                  isTablet ? 18 : (isSmallScreen ? 14 : 16),
+                ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.06),
@@ -533,7 +553,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                 ),
               ),
               child: Padding(
-                padding: EdgeInsets.all(isTablet ? 20 : (isSmallScreen ? 12 : 16)),
+                padding: EdgeInsets.all(
+                  isTablet ? 20 : (isSmallScreen ? 12 : 16),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -550,7 +572,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                               Text(
                                 title,
                                 style: GoogleFonts.quicksand(
-                                  fontSize: isTablet ? 20 : (isSmallScreen ? 15 : 17),
+                                  fontSize: isTablet
+                                      ? 20
+                                      : (isSmallScreen ? 15 : 17),
                                   fontWeight: FontWeight.w800,
                                   color: ModernColors.onSurface,
                                   height: 1.2,
@@ -559,22 +583,32 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                                 overflow: TextOverflow.ellipsis,
                               ),
 
-                              SizedBox(height: isTablet ? 8 : (isSmallScreen ? 6 : 6)),
+                              SizedBox(
+                                height: isTablet ? 8 : (isSmallScreen ? 6 : 6),
+                              ),
 
                               // Location with RED icon
                               Row(
                                 children: [
                                   Icon(
                                     Icons.location_on_rounded,
-                                    size: isTablet ? 16 : (isSmallScreen ? 13 : 15),
+                                    size: isTablet
+                                        ? 16
+                                        : (isSmallScreen ? 13 : 15),
                                     color: Colors.red,
                                   ),
-                                  SizedBox(width: isTablet ? 8 : (isSmallScreen ? 4 : 6)),
+                                  SizedBox(
+                                    width: isTablet
+                                        ? 8
+                                        : (isSmallScreen ? 4 : 6),
+                                  ),
                                   Expanded(
                                     child: Text(
                                       location,
                                       style: GoogleFonts.quicksand(
-                                        fontSize: isTablet ? 14 : (isSmallScreen ? 12 : 13),
+                                        fontSize: isTablet
+                                            ? 14
+                                            : (isSmallScreen ? 12 : 13),
                                         color: ModernColors.onSurfaceVariant,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -586,7 +620,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                           ),
                         ),
 
-                        SizedBox(width: isTablet ? 16 : (isSmallScreen ? 8 : 10)),
+                        SizedBox(
+                          width: isTablet ? 16 : (isSmallScreen ? 8 : 10),
+                        ),
 
                         // Room Status Button - Shows booking status
                         Container(
@@ -599,7 +635,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                             gradient: _getStatusGradient(bookingStatus),
                             boxShadow: [
                               BoxShadow(
-                                color: _getStatusColor(bookingStatus).withOpacity(0.3),
+                                color: _getStatusColor(
+                                  bookingStatus,
+                                ).withOpacity(0.3),
                                 blurRadius: 5,
                                 offset: const Offset(0, 2),
                               ),
@@ -628,7 +666,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       ),
                       decoration: BoxDecoration(
                         color: ModernColors.background.withOpacity(0.6),
-                        borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 8 : 10)),
+                        borderRadius: BorderRadius.circular(
+                          isTablet ? 12 : (isSmallScreen ? 8 : 10),
+                        ),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -684,7 +724,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                         ),
                         decoration: BoxDecoration(
                           color: ModernColors.surface,
-                          borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
+                          borderRadius: BorderRadius.circular(
+                            isTablet ? 12 : (isSmallScreen ? 10 : 12),
+                          ),
                           border: Border.all(
                             color: ModernColors.outline.withOpacity(0.4),
                             width: 1.5,
@@ -704,12 +746,16 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                             Text(
                               "Monthly Rent",
                               style: GoogleFonts.quicksand(
-                                fontSize: isTablet ? 13 : (isSmallScreen ? 11 : 12),
+                                fontSize: isTablet
+                                    ? 13
+                                    : (isSmallScreen ? 11 : 12),
                                 fontWeight: FontWeight.w700,
                                 color: ModernColors.onSurfaceVariant,
                               ),
                             ),
-                            SizedBox(height: isTablet ? 4 : (isSmallScreen ? 2 : 3)),
+                            SizedBox(
+                              height: isTablet ? 4 : (isSmallScreen ? 2 : 3),
+                            ),
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.baseline,
                               textBaseline: TextBaseline.alphabetic,
@@ -717,26 +763,38 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                                 Text(
                                   "NPR",
                                   style: GoogleFonts.quicksand(
-                                    fontSize: isTablet ? 13 : (isSmallScreen ? 11 : 12),
-                                    color: ModernColors.onSurfaceVariant.withOpacity(0.8),
+                                    fontSize: isTablet
+                                        ? 13
+                                        : (isSmallScreen ? 11 : 12),
+                                    color: ModernColors.onSurfaceVariant
+                                        .withOpacity(0.8),
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                SizedBox(width: isTablet ? 6 : (isSmallScreen ? 3 : 4)),
+                                SizedBox(
+                                  width: isTablet ? 6 : (isSmallScreen ? 3 : 4),
+                                ),
                                 Text(
                                   " $priceNPR",
                                   style: GoogleFonts.quicksand(
-                                    fontSize: isTablet ? 22 : (isSmallScreen ? 18 : 20),
+                                    fontSize: isTablet
+                                        ? 22
+                                        : (isSmallScreen ? 18 : 20),
                                     fontWeight: FontWeight.w800,
                                     color: ModernColors.onSurface,
                                   ),
                                 ),
-                                SizedBox(width: isTablet ? 6 : (isSmallScreen ? 3 : 4)),
+                                SizedBox(
+                                  width: isTablet ? 6 : (isSmallScreen ? 3 : 4),
+                                ),
                                 Text(
                                   "/month",
                                   style: GoogleFonts.quicksand(
-                                    fontSize: isTablet ? 13 : (isSmallScreen ? 11 : 12),
-                                    color: ModernColors.onSurfaceVariant.withOpacity(0.8),
+                                    fontSize: isTablet
+                                        ? 13
+                                        : (isSmallScreen ? 11 : 12),
+                                    color: ModernColors.onSurfaceVariant
+                                        .withOpacity(0.8),
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -749,7 +807,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
 
                     // Divider before Additional Amenities
                     Padding(
-                      padding: EdgeInsets.symmetric(vertical: isTablet ? 16 : (isSmallScreen ? 12 : 14)),
+                      padding: EdgeInsets.symmetric(
+                        vertical: isTablet ? 16 : (isSmallScreen ? 12 : 14),
+                      ),
                       child: Divider(
                         height: 1,
                         color: ModernColors.outline.withOpacity(0.3),
@@ -768,7 +828,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                             color: ModernColors.onSurface,
                           ),
                         ),
-                        SizedBox(height: isTablet ? 16 : (isSmallScreen ? 10 : 12)),
+                        SizedBox(
+                          height: isTablet ? 16 : (isSmallScreen ? 10 : 12),
+                        ),
 
                         // First Row: Water & Sunlight
                         Row(
@@ -777,17 +839,25 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                             // Water Pill
                             Container(
                               padding: EdgeInsets.symmetric(
-                                horizontal: isTablet ? 14 : (isSmallScreen ? 10 : 10),
-                                vertical: isTablet ? 8 : (isSmallScreen ? 5 : 5),
+                                horizontal: isTablet
+                                    ? 14
+                                    : (isSmallScreen ? 10 : 10),
+                                vertical: isTablet
+                                    ? 8
+                                    : (isSmallScreen ? 5 : 5),
                               ),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFE8F5E9),
-                                borderRadius: BorderRadius.circular(isTablet ? 18 : 16),
+                                borderRadius: BorderRadius.circular(
+                                  isTablet ? 18 : 16,
+                                ),
                               ),
                               child: Text(
                                 "💧 Water: $water",
                                 style: GoogleFonts.quicksand(
-                                  fontSize: isTablet ? 14 : (isSmallScreen ? 11 : 11),
+                                  fontSize: isTablet
+                                      ? 14
+                                      : (isSmallScreen ? 11 : 11),
                                   fontWeight: FontWeight.w700,
                                   color: const Color(0xFF2E7D32),
                                 ),
@@ -797,17 +867,25 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                             // Sunlight Pill
                             Container(
                               padding: EdgeInsets.symmetric(
-                                horizontal: isTablet ? 14 : (isSmallScreen ? 10 : 10),
-                                vertical: isTablet ? 8 : (isSmallScreen ? 5 : 5),
+                                horizontal: isTablet
+                                    ? 14
+                                    : (isSmallScreen ? 10 : 10),
+                                vertical: isTablet
+                                    ? 8
+                                    : (isSmallScreen ? 5 : 5),
                               ),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFFFF3E0),
-                                borderRadius: BorderRadius.circular(isTablet ? 18 : 16),
+                                borderRadius: BorderRadius.circular(
+                                  isTablet ? 18 : 16,
+                                ),
                               ),
                               child: Text(
                                 "☀️ Sunlight: $sunlight",
                                 style: GoogleFonts.quicksand(
-                                  fontSize: isTablet ? 14 : (isSmallScreen ? 11 : 11),
+                                  fontSize: isTablet
+                                      ? 14
+                                      : (isSmallScreen ? 11 : 11),
                                   fontWeight: FontWeight.w700,
                                   color: const Color(0xFFF57C00),
                                 ),
@@ -816,7 +894,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                           ],
                         ),
 
-                        SizedBox(height: isTablet ? 12 : (isSmallScreen ? 8 : 10)),
+                        SizedBox(
+                          height: isTablet ? 12 : (isSmallScreen ? 8 : 10),
+                        ),
 
                         // Second Row: Bathroom & Windows
                         Row(
@@ -825,23 +905,39 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                             // Bathroom Pill
                             Container(
                               padding: EdgeInsets.symmetric(
-                                horizontal: isTablet ? 14 : (isSmallScreen ? 10 : 10),
-                                vertical: isTablet ? 8 : (isSmallScreen ? 5 : 5),
+                                horizontal: isTablet
+                                    ? 14
+                                    : (isSmallScreen ? 10 : 10),
+                                vertical: isTablet
+                                    ? 8
+                                    : (isSmallScreen ? 5 : 5),
                               ),
                               decoration: BoxDecoration(
-                                color: hasBathroom ?
-                                const Color(0xFFE3F2FD) : // Light blue for attached
-                                const Color(0xFFF5F5F5), // Light grey for shared
-                                borderRadius: BorderRadius.circular(isTablet ? 18 : 16),
+                                color: hasBathroom
+                                    ? const Color(0xFFE3F2FD)
+                                    : // Light blue for attached
+                                      const Color(
+                                        0xFFF5F5F5,
+                                      ), // Light grey for shared
+                                borderRadius: BorderRadius.circular(
+                                  isTablet ? 18 : 16,
+                                ),
                               ),
                               child: Text(
-                                hasBathroom ? "🚽 Bathroom: Attached" : "🚽 Bathroom: Shared",
+                                hasBathroom
+                                    ? "🚽 Bathroom: Attached"
+                                    : "🚽 Bathroom: Shared",
                                 style: GoogleFonts.quicksand(
-                                  fontSize: isTablet ? 14 : (isSmallScreen ? 11 : 11),
+                                  fontSize: isTablet
+                                      ? 14
+                                      : (isSmallScreen ? 11 : 11),
                                   fontWeight: FontWeight.w700,
-                                  color: hasBathroom ?
-                                  const Color(0xFF2196F3) : // Blue for attached
-                                  const Color(0xFF757575), // Grey for shared
+                                  color: hasBathroom
+                                      ? const Color(0xFF2196F3)
+                                      : // Blue for attached
+                                        const Color(
+                                          0xFF757575,
+                                        ), // Grey for shared
                                 ),
                               ),
                             ),
@@ -849,17 +945,25 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                             // Windows Pill
                             Container(
                               padding: EdgeInsets.symmetric(
-                                horizontal: isTablet ? 14 : (isSmallScreen ? 10 : 10),
-                                vertical: isTablet ? 8 : (isSmallScreen ? 5 : 5),
+                                horizontal: isTablet
+                                    ? 14
+                                    : (isSmallScreen ? 10 : 10),
+                                vertical: isTablet
+                                    ? 8
+                                    : (isSmallScreen ? 5 : 5),
                               ),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF3E5F5),
-                                borderRadius: BorderRadius.circular(isTablet ? 18 : 16),
+                                borderRadius: BorderRadius.circular(
+                                  isTablet ? 18 : 16,
+                                ),
                               ),
                               child: Text(
                                 "🪟 Windows: 5",
                                 style: GoogleFonts.quicksand(
-                                  fontSize: isTablet ? 14 : (isSmallScreen ? 11 : 11),
+                                  fontSize: isTablet
+                                      ? 14
+                                      : (isSmallScreen ? 11 : 11),
                                   fontWeight: FontWeight.w700,
                                   color: const Color(0xFF9C27B0),
                                 ),
@@ -868,7 +972,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                           ],
                         ),
 
-                        SizedBox(height: isTablet ? 20 : (isSmallScreen ? 12 : 16)),
+                        SizedBox(
+                          height: isTablet ? 20 : (isSmallScreen ? 12 : 16),
+                        ),
 
                         // Amenity Windows (Laundry, Wi-Fi, Parking, Security, Cleaning)
                         Row(
@@ -993,7 +1099,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
           // Center aligned title
           Center(
             child: Text(
-              widget.isHistoryView ? "Booking History Details" : "Booking Request Details",
+              widget.isHistoryView
+                  ? "Booking History Details"
+                  : "Booking Request Details",
               style: GoogleFonts.quicksand(
                 fontSize: isTablet ? 24 : (isSmallScreen ? 18 : 20),
                 fontWeight: FontWeight.w800,
@@ -1026,7 +1134,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         padding: EdgeInsets.all(isTablet ? 16 : (isSmallScreen ? 12 : 14)),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+          borderRadius: BorderRadius.circular(
+            isTablet ? 18 : (isSmallScreen ? 14 : 16),
+          ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.08),
@@ -1034,10 +1144,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
               offset: const Offset(0, 3),
             ),
           ],
-          border: Border.all(
-            color: const Color(0xFFE2E8F0),
-            width: 1.0,
-          ),
+          border: Border.all(color: const Color(0xFFE2E8F0), width: 1.0),
         ),
         child: Row(
           children: [
@@ -1047,47 +1154,44 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
               height: isTablet ? 50 : (isSmallScreen ? 40 : 45),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(
-                  color: const Color(0xFFE2E8F0),
-                  width: 1.5,
-                ),
+                border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
               ),
               child: ClipOval(
                 child: userPhoto != null && userPhoto.isNotEmpty
                     ? CachedNetworkImage(
-                  imageUrl: userPhoto,
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(
-                    color: const Color(0xFFF1F5F9),
-                    child: Center(
-                      child: Icon(
-                        Icons.person_rounded,
-                        size: isTablet ? 20 : 16,
-                        color: const Color(0xFF94A3B8),
-                      ),
-                    ),
-                  ),
-                  errorWidget: (context, url, error) => Container(
-                    color: const Color(0xFFF1F5F9),
-                    child: Center(
-                      child: Icon(
-                        Icons.person_rounded,
-                        size: isTablet ? 20 : 16,
-                        color: const Color(0xFF94A3B8),
-                      ),
-                    ),
-                  ),
-                )
+                        imageUrl: userPhoto,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          color: const Color(0xFFF1F5F9),
+                          child: Center(
+                            child: Icon(
+                              Icons.person_rounded,
+                              size: isTablet ? 20 : 16,
+                              color: const Color(0xFF94A3B8),
+                            ),
+                          ),
+                        ),
+                        errorWidget: (context, url, error) => Container(
+                          color: const Color(0xFFF1F5F9),
+                          child: Center(
+                            child: Icon(
+                              Icons.person_rounded,
+                              size: isTablet ? 20 : 16,
+                              color: const Color(0xFF94A3B8),
+                            ),
+                          ),
+                        ),
+                      )
                     : Container(
-                  color: const Color(0xFFF1F5F9),
-                  child: Center(
-                    child: Icon(
-                      Icons.person_rounded,
-                      size: isTablet ? 20 : 16,
-                      color: const Color(0xFF94A3B8),
-                    ),
-                  ),
-                ),
+                        color: const Color(0xFFF1F5F9),
+                        child: Center(
+                          child: Icon(
+                            Icons.person_rounded,
+                            size: isTablet ? 20 : 16,
+                            color: const Color(0xFF94A3B8),
+                          ),
+                        ),
+                      ),
               ),
             ),
             SizedBox(width: isTablet ? 14 : (isSmallScreen ? 10 : 12)),
@@ -1153,33 +1257,122 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
               ),
             ),
 
-            // Messaging icon at right center
-            Container(
-              width: isTablet ? 36 : (isSmallScreen ? 30 : 32),
-              height: isTablet ? 36 : (isSmallScreen ? 30 : 32),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0084FF),
-                borderRadius: BorderRadius.circular(isTablet ? 10 : 8),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF0084FF).withOpacity(0.3),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.messenger_rounded,
-                size: isTablet ? 18 : (isSmallScreen ? 16 : 17),
-                color: Colors.white,
-              ),
-            ),
+            // **FIXED CHAT BUTTON - WORKING VERSION**
+            _buildChatButton(isSmallScreen, isTablet),
           ],
         ),
       ),
     );
   }
 
+  // **NEW: SEPARATE CHAT BUTTON WIDGET**
+  Widget _buildChatButton(bool isSmallScreen, bool isTablet) {
+    return Container(
+      width: isTablet ? 36 : (isSmallScreen ? 30 : 32),
+      height: isTablet ? 36 : (isSmallScreen ? 30 : 32),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0084FF),
+        borderRadius: BorderRadius.circular(isTablet ? 10 : 8),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0084FF).withOpacity(0.3),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(isTablet ? 10 : 8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(isTablet ? 10 : 8),
+          onTap: _openChatDirect, // Make sure this calls the method above
+          child: Center(
+            child: Icon(
+              Icons.messenger_rounded,
+              size: isTablet ? 18 : (isSmallScreen ? 16 : 17),
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // **NEW: SEPARATE METHOD FOR CHAT BUTTON HANDLING**
+ void _openChatDirect() {
+  print('💬 CHAT BUTTON CLICKED');
+  
+  // Get room owner ID
+  final roomOwnerId = widget.room['sessionId']?.toString().trim() ?? '';
+  print('🏠 Room owner ID: $roomOwnerId');
+  
+  // Get my ID (current user)
+  final myId = FirebaseAuth.instance.currentUser?.uid ?? '';
+  if (myId.isEmpty) {
+    print('❌ I need to login first');
+    _toastService.showErrorMessage('Please login to chat');
+    return;
+  }
+  
+  print('👤 My ID: $myId');
+  
+  // Sort IDs for conversation ID
+  final List<String> ids = [myId, roomOwnerId]..sort();
+  final conversationId = '${ids[0]}_${ids[1]}';
+  print('💬 Creating conversation: $conversationId');
+  
+  // **SIMPLE: Just create it in Firestore**
+  _createChatInFirestore(conversationId, myId, roomOwnerId);
+  
+  // Close the dialog
+  Navigator.pop(context);
+}
+
+void _createChatInFirestore(String convId, String myId, String ownerId) async {
+  try {
+    final firestore = FirebaseFirestore.instance;
+    
+    // 1. Create conversation
+    await firestore.collection('chat_users').doc(convId).set({
+      'conversationId': convId,
+      'user1Id': myId,
+      'user2Id': ownerId,
+      'users': [myId, ownerId],
+      'lastMessage': 'Hello! Interested in your room.',
+      'lastMessageTime': Timestamp.now(),
+      'lastMessageSenderId': myId,
+      'unreadCount': {myId: 0, ownerId: 1},
+      'isFavorite': {myId: false, ownerId: false},
+      'createdAt': Timestamp.now(),
+      'updatedAt': Timestamp.now(),
+    });
+    
+    print('✅ Conversation created');
+    
+    // 2. Create first message
+    final messageId = 'msg_${DateTime.now().millisecondsSinceEpoch}';
+    await firestore.collection('chats').doc(messageId).set({
+      'messageId': messageId,
+      'conversationId': convId,
+      'senderId': myId,
+      'receiverId': ownerId,
+      'message': 'Hello! I\'m interested in your room.',
+      'type': 'text',
+      'timestamp': Timestamp.now(),
+      'isRead': false,
+      'isDeleted': false,
+    });
+    
+    print('✅ Message created');
+    
+    // Show success
+    _toastService.showSuccessMessage('Room owner added to chat list!');
+    
+  } catch (e) {
+    print('⚠️ Error (but continuing): $e');
+  }
+}
   Widget _buildUserInfoShimmer(bool isSmallScreen, bool isTablet) {
     return Padding(
       padding: EdgeInsets.symmetric(
@@ -1194,7 +1387,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
           padding: EdgeInsets.all(isTablet ? 16 : (isSmallScreen ? 12 : 14)),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+            borderRadius: BorderRadius.circular(
+              isTablet ? 18 : (isSmallScreen ? 14 : 16),
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.08),
@@ -1202,10 +1397,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                 offset: const Offset(0, 3),
               ),
             ],
-            border: Border.all(
-              color: const Color(0xFFE2E8F0),
-              width: 1.0,
-            ),
+            border: Border.all(color: const Color(0xFFE2E8F0), width: 1.0),
           ),
           child: Row(
             children: [
@@ -1308,15 +1500,23 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     );
   }
 
-  Widget _buildMainImageSection(List<String> images, bool isSmallScreen, bool isTablet) {
+  Widget _buildMainImageSection(
+    List<String> images,
+    bool isSmallScreen,
+    bool isTablet,
+  ) {
     if (images.isEmpty) {
       return Padding(
-        padding: EdgeInsets.symmetric(horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20)),
+        padding: EdgeInsets.symmetric(
+          horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+        ),
         child: Container(
           height: isTablet ? 250 : (isSmallScreen ? 180 : 200),
           decoration: BoxDecoration(
             color: Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+            borderRadius: BorderRadius.circular(
+              isTablet ? 18 : (isSmallScreen ? 14 : 16),
+            ),
           ),
           child: Center(
             child: Column(
@@ -1348,11 +1548,15 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         GestureDetector(
           onTap: () => _viewFullImage(0),
           child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20)),
+            padding: EdgeInsets.symmetric(
+              horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20),
+            ),
             child: Container(
               height: isTablet ? 250 : (isSmallScreen ? 180 : 200),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+                borderRadius: BorderRadius.circular(
+                  isTablet ? 18 : (isSmallScreen ? 14 : 16),
+                ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.1),
@@ -1362,16 +1566,17 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                 ],
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+                borderRadius: BorderRadius.circular(
+                  isTablet ? 18 : (isSmallScreen ? 14 : 16),
+                ),
                 child: Stack(
                   children: [
                     CachedNetworkImage(
                       imageUrl: images[0],
                       fit: BoxFit.cover,
                       width: double.infinity,
-                      placeholder: (context, url) => Container(
-                        color: Colors.grey.shade100,
-                      ),
+                      placeholder: (context, url) =>
+                          Container(color: Colors.grey.shade100),
                       errorWidget: (context, url, error) => Container(
                         color: Colors.grey.shade100,
                         child: Center(
@@ -1393,7 +1598,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                         ),
                         decoration: BoxDecoration(
                           color: Colors.black.withOpacity(0.6),
-                          borderRadius: BorderRadius.circular(isTablet ? 14 : (isSmallScreen ? 10 : 12)),
+                          borderRadius: BorderRadius.circular(
+                            isTablet ? 14 : (isSmallScreen ? 10 : 12),
+                          ),
                         ),
                         child: Text(
                           "${images.length} photos",
@@ -1418,10 +1625,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
             top: isTablet ? 16 : 10,
             left: isTablet ? 24 : (isSmallScreen ? 16 : 20),
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 5,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
                 color: ModernColors.primary.withOpacity(0.95),
                 borderRadius: BorderRadius.circular(14),
@@ -1447,7 +1651,11 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     );
   }
 
-  Widget _buildThumbnailsSection(List<String> images, bool isSmallScreen, bool isTablet) {
+  Widget _buildThumbnailsSection(
+    List<String> images,
+    bool isSmallScreen,
+    bool isTablet,
+  ) {
     final itemWidth = isTablet ? 80.0 : (isSmallScreen ? 60.0 : 70.0);
     final itemHeight = isTablet ? 80.0 : (isSmallScreen ? 60.0 : 70.0);
     final borderRadius = isTablet ? 14.0 : (isSmallScreen ? 10.0 : 12.0);
@@ -1462,21 +1670,35 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         height: itemHeight,
         child: Center(
           child: images.length <= 3
-              ? _buildCenteredThumbnails(images, itemWidth, itemHeight, borderRadius, isSmallScreen, isTablet)
-              : _buildScrollableThumbnails(images, itemWidth, itemHeight, borderRadius, isSmallScreen, isTablet),
+              ? _buildCenteredThumbnails(
+                  images,
+                  itemWidth,
+                  itemHeight,
+                  borderRadius,
+                  isSmallScreen,
+                  isTablet,
+                )
+              : _buildScrollableThumbnails(
+                  images,
+                  itemWidth,
+                  itemHeight,
+                  borderRadius,
+                  isSmallScreen,
+                  isTablet,
+                ),
         ),
       ),
     );
   }
 
   Widget _buildCenteredThumbnails(
-      List<String> images,
-      double itemWidth,
-      double itemHeight,
-      double borderRadius,
-      bool isSmallScreen,
-      bool isTablet,
-      ) {
+    List<String> images,
+    double itemWidth,
+    double itemHeight,
+    double borderRadius,
+    bool isSmallScreen,
+    bool isTablet,
+  ) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: images.asMap().entries.map((entry) {
@@ -1486,7 +1708,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
           onTap: () => _viewFullImage(index),
           child: Padding(
             padding: EdgeInsets.only(
-              right: index < images.length - 1 ? (isTablet ? 12 : (isSmallScreen ? 8 : 10)) : 0,
+              right: index < images.length - 1
+                  ? (isTablet ? 12 : (isSmallScreen ? 8 : 10))
+                  : 0,
             ),
             child: Container(
               width: itemWidth,
@@ -1510,9 +1734,8 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                 child: CachedNetworkImage(
                   imageUrl: imageUrl,
                   fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(
-                    color: Colors.grey.shade100,
-                  ),
+                  placeholder: (context, url) =>
+                      Container(color: Colors.grey.shade100),
                   errorWidget: (context, url, error) => Container(
                     color: Colors.grey.shade100,
                     child: Icon(
@@ -1531,13 +1754,13 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   }
 
   Widget _buildScrollableThumbnails(
-      List<String> images,
-      double itemWidth,
-      double itemHeight,
-      double borderRadius,
-      bool isSmallScreen,
-      bool isTablet,
-      ) {
+    List<String> images,
+    double itemWidth,
+    double itemHeight,
+    double borderRadius,
+    bool isSmallScreen,
+    bool isTablet,
+  ) {
     return ListView.builder(
       scrollDirection: Axis.horizontal,
       itemCount: images.length,
@@ -1546,7 +1769,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
           onTap: () => _viewFullImage(index),
           child: Padding(
             padding: EdgeInsets.only(
-              right: index < images.length - 1 ? (isTablet ? 12 : (isSmallScreen ? 8 : 10)) : 0,
+              right: index < images.length - 1
+                  ? (isTablet ? 12 : (isSmallScreen ? 8 : 10))
+                  : 0,
               left: index == 0 ? (isTablet ? 12 : (isSmallScreen ? 8 : 10)) : 0,
             ),
             child: Container(
@@ -1571,9 +1796,8 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                 child: CachedNetworkImage(
                   imageUrl: images[index],
                   fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(
-                    color: Colors.grey.shade100,
-                  ),
+                  placeholder: (context, url) =>
+                      Container(color: Colors.grey.shade100),
                   errorWidget: (context, url, error) => Container(
                     color: Colors.grey.shade100,
                     child: Icon(
@@ -1653,13 +1877,14 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                   return InteractiveViewer(
                     maxScale: 3.0,
                     child: Padding(
-                      padding: EdgeInsets.all(isTablet ? 24 : (isSmallScreen ? 16 : 20)),
+                      padding: EdgeInsets.all(
+                        isTablet ? 24 : (isSmallScreen ? 16 : 20),
+                      ),
                       child: CachedNetworkImage(
                         imageUrl: images[index],
                         fit: BoxFit.contain,
-                        placeholder: (context, url) => Container(
-                          color: Colors.grey.shade800,
-                        ),
+                        placeholder: (context, url) =>
+                            Container(color: Colors.grey.shade800),
                         errorWidget: (context, url, error) => Container(
                           color: Colors.grey.shade800,
                           child: Center(
@@ -1690,8 +1915,16 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                   height: isTablet ? 70 : (isSmallScreen ? 50 : 60),
                   child: Center(
                     child: images.length <= 3
-                        ? _buildCenteredBottomThumbnails(images, isSmallScreen, isTablet)
-                        : _buildScrollableBottomThumbnails(images, isSmallScreen, isTablet),
+                        ? _buildCenteredBottomThumbnails(
+                            images,
+                            isSmallScreen,
+                            isTablet,
+                          )
+                        : _buildScrollableBottomThumbnails(
+                            images,
+                            isSmallScreen,
+                            isTablet,
+                          ),
                   ),
                 ),
               ),
@@ -1702,7 +1935,11 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     );
   }
 
-  Widget _buildCenteredBottomThumbnails(List<String> images, bool isSmallScreen, bool isTablet) {
+  Widget _buildCenteredBottomThumbnails(
+    List<String> images,
+    bool isSmallScreen,
+    bool isTablet,
+  ) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: images.asMap().entries.map((entry) {
@@ -1735,9 +1972,8 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                 child: CachedNetworkImage(
                   imageUrl: imageUrl,
                   fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(
-                    color: Colors.grey.shade800,
-                  ),
+                  placeholder: (context, url) =>
+                      Container(color: Colors.grey.shade800),
                 ),
               ),
             ),
@@ -1747,7 +1983,11 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     );
   }
 
-  Widget _buildScrollableBottomThumbnails(List<String> images, bool isSmallScreen, bool isTablet) {
+  Widget _buildScrollableBottomThumbnails(
+    List<String> images,
+    bool isSmallScreen,
+    bool isTablet,
+  ) {
     return ListView.builder(
       scrollDirection: Axis.horizontal,
       itemCount: images.length,
@@ -1778,9 +2018,8 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                 child: CachedNetworkImage(
                   imageUrl: images[index],
                   fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(
-                    color: Colors.grey.shade800,
-                  ),
+                  placeholder: (context, url) =>
+                      Container(color: Colors.grey.shade800),
                 ),
               ),
             ),
@@ -1791,13 +2030,13 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   }
 
   Widget _buildCompactSpecItem(
-      IconData icon,
-      String title,
-      String value,
-      Color color,
-      bool isSmallScreen,
-      bool isTablet,
-      ) {
+    IconData icon,
+    String title,
+    String value,
+    Color color,
+    bool isSmallScreen,
+    bool isTablet,
+  ) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -1828,7 +2067,13 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     );
   }
 
-  Widget _buildAmenityWindow(IconData icon, String label, Color color, bool isSmallScreen, bool isTablet) {
+  Widget _buildAmenityWindow(
+    IconData icon,
+    String label,
+    Color color,
+    bool isSmallScreen,
+    bool isTablet,
+  ) {
     final size = isTablet ? 60.0 : (isSmallScreen ? 40.0 : 45.0);
     return Column(
       children: [
@@ -1837,11 +2082,10 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
           height: size,
           decoration: BoxDecoration(
             color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(isTablet ? 14 : (isSmallScreen ? 8 : 10)),
-            border: Border.all(
-              color: color.withOpacity(0.2),
-              width: 1.5,
+            borderRadius: BorderRadius.circular(
+              isTablet ? 14 : (isSmallScreen ? 8 : 10),
             ),
+            border: Border.all(color: color.withOpacity(0.2), width: 1.5),
           ),
           child: Icon(
             icon,
@@ -1870,9 +2114,14 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     required bool isTablet,
   }) {
     final hasCoordinates = latitude != null && longitude != null;
-    final destinationLat = hasCoordinates ? double.tryParse(latitude.toString()) : null;
-    final destinationLng = hasCoordinates ? double.tryParse(longitude.toString()) : null;
-    final destination = hasCoordinates && destinationLat != null && destinationLng != null
+    final destinationLat = hasCoordinates
+        ? double.tryParse(latitude.toString())
+        : null;
+    final destinationLng = hasCoordinates
+        ? double.tryParse(longitude.toString())
+        : null;
+    final destination =
+        hasCoordinates && destinationLat != null && destinationLng != null
         ? LatLng(destinationLat, destinationLng)
         : null;
 
@@ -1885,7 +2134,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         padding: EdgeInsets.all(isTablet ? 20 : (isSmallScreen ? 12 : 16)),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(isTablet ? 18 : (isSmallScreen ? 14 : 16)),
+          borderRadius: BorderRadius.circular(
+            isTablet ? 18 : (isSmallScreen ? 14 : 16),
+          ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.08),
@@ -1893,10 +2144,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
               offset: const Offset(0, 4),
             ),
           ],
-          border: Border.all(
-            color: Colors.grey.shade200,
-            width: 1.0,
-          ),
+          border: Border.all(color: Colors.grey.shade200, width: 1.0),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1927,9 +2175,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       foreground: Paint()
                         ..shader = const LinearGradient(
                           colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
-                        ).createShader(
-                          const Rect.fromLTWH(0, 0, 200, 70),
-                        ),
+                        ).createShader(const Rect.fromLTWH(0, 0, 200, 70)),
                     ),
                   ),
                 ],
@@ -1947,7 +2193,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                   bottom: isTablet ? 16 : 12,
                 ),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(isTablet ? 14 : (isSmallScreen ? 10 : 12)),
+                  borderRadius: BorderRadius.circular(
+                    isTablet ? 14 : (isSmallScreen ? 10 : 12),
+                  ),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.1),
@@ -1956,7 +2204,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                   ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(isTablet ? 14 : (isSmallScreen ? 10 : 12)),
+                  borderRadius: BorderRadius.circular(
+                    isTablet ? 14 : (isSmallScreen ? 10 : 12),
+                  ),
                   child: Stack(
                     children: [
                       // Google Map with full interactivity
@@ -1974,7 +2224,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                               }
 
                               // Draw polyline if not already drawn
-                              if (_currentLatLng.value != null && !_polylineDrawn && destination != null) {
+                              if (_currentLatLng.value != null &&
+                                  !_polylineDrawn &&
+                                  destination != null) {
                                 _drawDirectPolyline();
                               }
 
@@ -1982,12 +2234,24 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                               if (_currentLatLng.value != null) {
                                 final bounds = LatLngBounds(
                                   southwest: LatLng(
-                                    min(destination.latitude, _currentLatLng.value!.latitude),
-                                    min(destination.longitude, _currentLatLng.value!.longitude),
+                                    min(
+                                      destination.latitude,
+                                      _currentLatLng.value!.latitude,
+                                    ),
+                                    min(
+                                      destination.longitude,
+                                      _currentLatLng.value!.longitude,
+                                    ),
                                   ),
                                   northeast: LatLng(
-                                    max(destination.latitude, _currentLatLng.value!.latitude),
-                                    max(destination.longitude, _currentLatLng.value!.longitude),
+                                    max(
+                                      destination.latitude,
+                                      _currentLatLng.value!.latitude,
+                                    ),
+                                    max(
+                                      destination.longitude,
+                                      _currentLatLng.value!.longitude,
+                                    ),
                                   ),
                                 );
 
@@ -2006,7 +2270,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                               Marker(
                                 markerId: const MarkerId('destination'),
                                 position: destination,
-                                icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+                                icon: BitmapDescriptor.defaultMarkerWithHue(
+                                  BitmapDescriptor.hueRed,
+                                ),
                                 infoWindow: InfoWindow(
                                   title: 'Room Location',
                                   snippet: fullLocation,
@@ -2018,7 +2284,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                                 Marker(
                                   markerId: const MarkerId('current_location'),
                                   position: _currentLatLng.value!,
-                                  icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+                                  icon: BitmapDescriptor.defaultMarkerWithHue(
+                                    BitmapDescriptor.hueGreen,
+                                  ),
                                   infoWindow: const InfoWindow(
                                     title: 'Your Location',
                                   ),
@@ -2032,7 +2300,10 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                             rotateGesturesEnabled: true,
                             tiltGesturesEnabled: true,
                             mapType: mapType,
-                            minMaxZoomPreference: const MinMaxZoomPreference(5, 20),
+                            minMaxZoomPreference: const MinMaxZoomPreference(
+                              5,
+                              20,
+                            ),
                             onTap: (LatLng position) {
                               // Allow tap interactions
                             },
@@ -2140,7 +2411,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-                  borderRadius: BorderRadius.circular(isTablet ? 14 : (isSmallScreen ? 10 : 12)),
+                  borderRadius: BorderRadius.circular(
+                    isTablet ? 14 : (isSmallScreen ? 10 : 12),
+                  ),
                   boxShadow: [
                     BoxShadow(
                       color: const Color(0xFF3498DB).withOpacity(0.3),
@@ -2154,7 +2427,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                   style: TextButton.styleFrom(
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(isTablet ? 14 : (isSmallScreen ? 10 : 12)),
+                      borderRadius: BorderRadius.circular(
+                        isTablet ? 14 : (isSmallScreen ? 10 : 12),
+                      ),
                     ),
                   ),
                   icon: Icon(
@@ -2205,7 +2480,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                 child: Container(
                   height: isTablet ? 50 : (isSmallScreen ? 40 : 44),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
+                    borderRadius: BorderRadius.circular(
+                      isTablet ? 12 : (isSmallScreen ? 10 : 12),
+                    ),
                     gradient: const LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
@@ -2228,7 +2505,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       backgroundColor: Colors.transparent,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
+                        borderRadius: BorderRadius.circular(
+                          isTablet ? 12 : (isSmallScreen ? 10 : 12),
+                        ),
                       ),
                       elevation: 0,
                       padding: EdgeInsets.zero,
@@ -2261,7 +2540,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                 child: Container(
                   height: isTablet ? 50 : (isSmallScreen ? 40 : 44),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
+                    borderRadius: BorderRadius.circular(
+                      isTablet ? 12 : (isSmallScreen ? 10 : 12),
+                    ),
                     gradient: const LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
@@ -2284,7 +2565,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       backgroundColor: Colors.transparent,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(isTablet ? 12 : (isSmallScreen ? 10 : 12)),
+                        borderRadius: BorderRadius.circular(
+                          isTablet ? 12 : (isSmallScreen ? 10 : 12),
+                        ),
                       ),
                       elevation: 0,
                       padding: EdgeInsets.zero,

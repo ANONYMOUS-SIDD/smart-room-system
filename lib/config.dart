@@ -7,4 +7,13 @@ class AppConfig {
   // API Keys
   static const String apiKey = '67ed653b0a1c65458b95769444e4d179';
   static const String apiSecret = 'f4002a95cc397907f7739f59675ef59b';
+  
+  // Chat Configuration - ADD THESE
+  static const String chatImagesBucket = 'chat-images';
+  
+  // App Constants
+  static const String appName = 'Smart Room';
+  
+  // Firebase Project ID
+  static const String firebaseProjectId = 'mdmapp-4793e';
 }

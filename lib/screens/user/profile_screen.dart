@@ -10,7 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
-import '../../services/auth_service.dart';
+import '../../../services/auth_service.dart';
 import '../../services/toast_service.dart';
 import '../../widgets/modern_app_bar.dart';
 import '../auth/login_screen.dart';
