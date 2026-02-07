@@ -2,9 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:get/get_core/src/get_main.dart';
+import 'package:get/get_instance/src/extension_instance.dart';
+import 'package:get/get_navigation/src/extension_navigation.dart';
+import 'package:get/get_navigation/src/routes/transitions_type.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -14,6 +19,10 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../chat/helper/dialogs.dart';
+import '../../chat/models/chat_user.dart';
+import '../../chat/screens/chat_screen.dart';
+import '../../chat/services/chat_service.dart';
 import 'book_room.dart';
 
 class RoomDetailsBottomSheet extends StatefulWidget {
@@ -60,6 +69,133 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     }
     return [];
   }
+// Updated method for detail_dialog.dart
+  Future<void> _startChatWithOwner() async {
+    try {
+      print('🚀 Starting chat with room owner...');
+
+      // Get the required services
+      final chatService = Get.find<ChatService>();
+      final currentUser = FirebaseAuth.instance.currentUser;
+
+      if (currentUser == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Please login to chat', style: GoogleFonts.quicksand()),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      // Get owner ID - from your logs, it's 'sessionId'
+      String? ownerId = widget.room['sessionId']?.toString();
+
+      // If not in current data, fetch from Firestore
+      if (ownerId == null && widget.roomDocumentId != null) {
+        try {
+          final roomDoc = await FirebaseFirestore.instance
+              .collection('room')
+              .doc(widget.roomDocumentId!)
+              .get();
+
+          ownerId = roomDoc.data()?['sessionId']?.toString();
+        } catch (e) {
+          print('❌ Error fetching room: $e');
+        }
+      }
+
+      if (ownerId == null || ownerId.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not find room owner', style: GoogleFonts.quicksand()),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      // Check if trying to chat with self
+      if (ownerId == currentUser.uid) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('You cannot chat with yourself', style: GoogleFonts.quicksand()),
+            backgroundColor: Colors.amber,
+          ),
+        );
+        return;
+      }
+
+      print('👤 Current User: ${currentUser.uid}');
+      print('🏠 Room Owner: $ownerId');
+
+      // Close the bottom sheet first
+      Navigator.pop(context);
+
+      // Show loading indicator
+      Get.dialog(
+        const Center(child: CircularProgressIndicator()),
+        barrierDismissible: false,
+      );
+
+      try {
+        // STEP 1: Get or create conversation
+        final conversation = await chatService.getOrCreateConversation(ownerId);
+        print('✅ Conversation ID: ${conversation.conversationId}');
+
+        // STEP 2: Get owner user details
+        ChatUser? ownerUser = await chatService.getUserById(ownerId);
+
+        if (ownerUser == null) {
+          // Create temporary user for owner
+          ownerUser = ChatUser.createTemporary(
+            userId: ownerId,
+            name: widget.room['roomName']?.toString() ?? 'Room Owner',
+            email: widget.room['ownerEmail']?.toString() ?? '',
+            phone: widget.room['ownerPhone']?.toString() ?? '',
+            profilePath: widget.room['ownerImage']?.toString() ?? '',
+          );
+          print('⚠️ Created temporary user for owner: ${ownerUser.name}');
+        } else {
+          print('✅ Found owner in User collection: ${ownerUser.name}');
+        }
+
+        // Close loading dialog
+        Get.back();
+
+        // STEP 3: Navigate to chat screen with proper transition
+        await Get.to(
+              () => ChatScreen(
+            conversation: conversation,
+            otherUser: ownerUser!,
+          ),
+          transition: Transition.rightToLeft,
+          duration: const Duration(milliseconds: 300),
+        );
+
+        print('✅ Navigation to chat screen successful');
+
+      } catch (e) {
+        Get.back(); // Close loading dialog
+        print('❌ Error in chat setup: $e');
+        Get.snackbar(
+          'Error',
+          'Failed to start chat: ${e.toString()}',
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
+      }
+
+    } catch (e) {
+      print('❌ Error in _startChatWithOwner: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Something went wrong: $e', style: GoogleFonts.quicksand()),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   bool get _isNearKU {
     try {
@@ -86,6 +222,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
   @override
   void initState() {
     super.initState();
+    _debugRoomStructure();
     _controller = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -333,6 +470,37 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
       }
     } catch (e) {
       debugPrint("Error refreshing room status: $e");
+    }
+  }
+  void _debugRoomStructure() async {
+    try {
+      print('\n=== ROOM STRUCTURE DEBUG ===');
+
+      if (widget.roomDocumentId != null) {
+        final firestore = FirebaseFirestore.instance;
+        final roomDoc = await firestore.collection('room').doc(widget.roomDocumentId!).get();
+
+        if (roomDoc.exists) {
+          print('✅ Room document exists in Firestore');
+          print('Document ID: ${roomDoc.id}');
+          print('Data: ${roomDoc.data()}');
+
+          // Check for user reference
+          final data = roomDoc.data()!;
+          data.forEach((key, value) {
+            print('  $key: $value (Type: ${value.runtimeType})');
+
+            // If value is DocumentReference
+            if (value is DocumentReference) {
+              print('     ↳ Is DocumentReference to: ${value.path}');
+            }
+          });
+        }
+      }
+
+      print('=== END DEBUG ===\n');
+    } catch (e) {
+      print('Debug error: $e');
     }
   }
 
@@ -1850,6 +2018,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
+// Update the chat button in _buildActionButtons method:
   Widget _buildActionButtons(bool isSmallScreen, bool isTablet) {
     return Padding(
       padding: EdgeInsets.symmetric(
@@ -1858,7 +2027,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
       ),
       child: Row(
         children: [
-          // Chat Button with Purple Gradient
+          // Chat Button with Purple Gradient - UPDATED
           Expanded(
             child: Container(
               height: isTablet ? 50 : (isSmallScreen ? 40 : 44),
@@ -1881,9 +2050,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                 ],
               ),
               child: ElevatedButton(
-                onPressed: () {
-                  // TODO: Implement chat
-                },
+                onPressed: _startChatWithOwner, // Updated to call new method
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.transparent,
                   foregroundColor: Colors.white,
@@ -1902,7 +2069,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                     ),
                     SizedBox(width: isTablet ? 8 : (isSmallScreen ? 4 : 6)),
                     Text(
-                      "Chat",
+                      "Chat with Owner",
                       style: GoogleFonts.quicksand(
                         fontSize: isTablet ? 16 : (isSmallScreen ? 13 : 14),
                         fontWeight: FontWeight.w700,

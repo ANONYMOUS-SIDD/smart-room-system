@@ -3,18 +3,19 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
-
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shimmer/shimmer.dart';
 import '../services/chat_service.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/toast_service.dart';
+import '../../../widgets/modern_app_bar.dart';
 import '../models/chat_user.dart';
-import '../models/chat_message.dart';
-import 'chat_screen.dart';
 import '../models/conversation.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../../../screens/owner/owner_room_details_dialog.dart';
+import 'chat_screen.dart';
+import '../widgets/profile_image.dart';
 
 class ChatHomeScreen extends StatefulWidget {
-  final String? preSelectedUserId; // Optional: user to highlight
+  final String? preSelectedUserId;
 
   const ChatHomeScreen({super.key, this.preSelectedUserId});
 
@@ -23,8 +24,10 @@ class ChatHomeScreen extends StatefulWidget {
 }
 
 class _ChatHomeScreenState extends State<ChatHomeScreen> {
-  final ChatService _chatService = Get.find<ChatService>();
-  final AuthService _authService = Get.find<AuthService>();
+  final ChatService _chatService = Get.find();
+  final AuthService _authService = Get.find();
+  final ToastService _toastService = ToastService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   String _activeTab = 'all';
   bool _isSelectionMode = false;
@@ -32,364 +35,322 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
   String _searchQuery = '';
   late FocusNode _searchFocusNode;
   late TextEditingController _searchController;
+  StreamSubscription? _conversationsSubscription;
+  Map<String, ChatUser?> _cachedUsers = {};
   Timer? _refreshTimer;
+  Map<String, Conversation> _userConversationMap = {};
 
-  // Update the initState method in chat_home_screen.dart
   @override
-void initState() {
-  // INITIALIZE THESE FIRST!
-  _searchFocusNode = FocusNode();
-  _searchController = TextEditingController();
-  
-  super.initState();
-  
-  print('🎯 ChatHomeScreen loaded for user: ${_chatService.currentUserId}');
-}
+  void initState() {
+    super.initState();
+    _searchFocusNode = FocusNode();
+    _searchController = TextEditingController();
+
+    print('🎯 ChatHomeScreen loaded for user: ${_chatService.currentUserId}');
+    _subscribeToConversations();
+    _preloadUserStatus();
+  }
 
   @override
   void dispose() {
-    _refreshTimer?.cancel(); // Cancel the timer to prevent memory leaks
+    _conversationsSubscription?.cancel();
+    _refreshTimer?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
+    _cachedUsers.clear();
+    _userConversationMap.clear();
     super.dispose();
+  }
+
+  void _subscribeToConversations() {
+    _conversationsSubscription = _chatService.getUserConversations().listen(
+          (conversations) {
+        print('📥 Received ${conversations.length} conversations');
+        _processConversations(conversations);
+        setState(() {});
+      },
+      onError: (error) {
+        print('❌ Error in conversations stream: $error');
+      },
+    );
+  }
+
+  void _processConversations(List<Conversation> conversations) {
+    final currentUserId = _chatService.currentUserId;
+    if (currentUserId == null) return;
+
+    _userConversationMap.clear();
+
+    for (final conversation in conversations) {
+      final otherUserId = conversation.user1Id == currentUserId
+          ? conversation.user2Id
+          : conversation.user1Id;
+
+      if (!_userConversationMap.containsKey(otherUserId) ||
+          conversation.lastMessageTime.isAfter(
+            _userConversationMap[otherUserId]!.lastMessageTime,
+          )) {
+        _userConversationMap[otherUserId] = conversation;
+      }
+    }
+
+    print('✅ Grouped into ${_userConversationMap.length} unique users');
+  }
+
+  Future<void> _preloadUserStatus() async {
+    try {
+      final currentUserId = _chatService.currentUserId;
+      if (currentUserId == null) return;
+
+      for (final userId in _userConversationMap.keys) {
+        final user = await _chatService.getUserById(userId);
+        if (user != null) {
+          _cachedUsers[userId] = user;
+        }
+      }
+      print('✅ Pre-loaded ${_cachedUsers.length} users');
+    } catch (e) {
+      print('❌ Error preloading users: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: _buildAppBar(),
+      backgroundColor: ModernColors.background,
+      appBar: ModernAppBar(
+        title: _isSelectionMode
+            ? '${_selectedConversations.length} Selected'
+            : 'Chats',
+      ),
       body: RefreshIndicator(
         onRefresh: () async {
           print('🔄 Manual refresh triggered');
-          setState(() {});
+          setState(() {
+            _cachedUsers.clear();
+            _userConversationMap.clear();
+          });
+          await _preloadUserStatus();
           await Future.delayed(const Duration(milliseconds: 500));
         },
+        color: ModernColors.primary,
         child: Column(
           children: [
-            // Search Bar
             _buildSearchBar(),
-
-            // Show tabs only when not searching
-            if (_searchQuery.isEmpty) _buildTabBar(),
-
-            // Chat List or Search Results
+            if (_searchQuery.isEmpty) _buildCompactTabs(),
             Expanded(
               child: _searchQuery.isEmpty
-                  ? _buildChatList()
+                  ? _buildUserList()
                   : _buildSearchResults(),
             ),
           ],
         ),
       ),
-      bottomNavigationBar: _isSelectionMode ? _buildSelectionBottomBar() : null,
-    );
-  }
-
-  AppBar _buildAppBar() {
-    return AppBar(
-      backgroundColor: Colors.white,
-      elevation: 0.5,
-      title: _isSelectionMode
-          ? Text(
-              '${_selectedConversations.length} selected',
-              style: GoogleFonts.quicksand(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
-              ),
-            )
-          : Text(
-              'Chats',
-              style: GoogleFonts.quicksand(
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                color: Colors.black87,
-              ),
-            ),
-      centerTitle: true,
-      leading: _isSelectionMode
-          ? IconButton(
-              icon: const Icon(Icons.close, color: Colors.black87),
-              onPressed: _toggleSelectionMode,
-            )
-          : null,
-      actions: [
-        if (!_isSelectionMode)
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.black87),
-            onSelected: (value) {
-              if (value == 'select') {
-                _toggleSelectionMode();
-              } else if (value == 'refresh') {
-                setState(() {});
-              }
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'select',
-                child: Row(
-                  children: [
-                    const Icon(Icons.check_box_outlined, color: Colors.black87),
-                    const SizedBox(width: 8),
-                    Text('Select chats', style: GoogleFonts.quicksand()),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'refresh',
-                child: Row(
-                  children: [
-                    const Icon(Icons.refresh, color: Colors.black87),
-                    const SizedBox(width: 8),
-                    Text('Refresh', style: GoogleFonts.quicksand()),
-                  ],
-                ),
-              ),
-            ],
-          ),
-      ],
+      bottomNavigationBar: _isSelectionMode ? _buildModernSelectionBar() : null,
     );
   }
 
   Widget _buildSearchBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.grey[100],
-          borderRadius: BorderRadius.circular(25),
-          border: Border.all(color: Colors.grey[300]!),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.search, color: Colors.grey, size: 20),
-            const SizedBox(width: 10),
-            Expanded(
-              child: TextField(
-                controller: _searchController,
-                focusNode: _searchFocusNode,
-                autofocus: false,
-                onChanged: (value) {
-                  setState(() {
-                    _searchQuery = value;
-                  });
-                },
-                decoration: InputDecoration(
-                  border: InputBorder.none,
-                  hintText: 'Search users...',
-                  hintStyle: GoogleFonts.quicksand(
-                    color: Colors.grey,
-                    fontSize: 16,
-                  ),
-                ),
-                style: GoogleFonts.quicksand(
-                  fontSize: 16,
-                  color: Colors.black87,
-                ),
-              ),
-            ),
-            if (_searchQuery.isNotEmpty)
-              IconButton(
-                icon: const Icon(Icons.clear, size: 18, color: Colors.grey),
-                onPressed: () {
-                  setState(() {
-                    _searchQuery = '';
-                    _searchController.clear();
-                  });
-                  _searchFocusNode.unfocus();
-                },
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTabBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          _buildTabButton('all', 'All'),
-          const SizedBox(width: 8),
-          _buildTabButton('unread', 'Unread'),
-          const SizedBox(width: 8),
-          _buildTabButton('favorite', 'Favourite'),
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+      height: 48,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
-    );
-  }
-
-  Widget _buildTabButton(String value, String label) {
-    final isActive = _activeTab == value;
-    return Expanded(
-      child: ElevatedButton(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: isActive
-              ? const Color(0xFFE7F3FF)
-              : Colors.grey[100],
-          foregroundColor: isActive ? Colors.blue : Colors.grey[700],
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(vertical: 12),
-        ),
-        onPressed: () => setState(() => _activeTab = value),
-        child: Text(
-          label,
-          style: GoogleFonts.quicksand(
-            fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+      child: TextField(
+        controller: _searchController,
+        focusNode: _searchFocusNode,
+        onChanged: (value) {
+          setState(() {
+            _searchQuery = value;
+          });
+        },
+        cursorColor: ModernColors.primary,
+        cursorHeight: 18,
+        cursorWidth: 1.5,
+        cursorRadius: const Radius.circular(1),
+        decoration: InputDecoration(
+          border: InputBorder.none,
+          hintText: 'Search conversations...',
+          hintStyle: GoogleFonts.quicksand(
+            color: ModernColors.onSurfaceVariant,
             fontSize: 14,
+            fontWeight: FontWeight.w600,
           ),
+          prefixIcon: Icon(
+            Icons.search_rounded,
+            color: ModernColors.onSurfaceVariant,
+            size: 22,
+          ),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+            icon: Icon(
+              Icons.close_rounded,
+              size: 20,
+              color: ModernColors.onSurfaceVariant,
+            ),
+            onPressed: () {
+              setState(() {
+                _searchQuery = '';
+                _searchController.clear();
+              });
+              _searchFocusNode.unfocus();
+            },
+          )
+              : null,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        ),
+        style: GoogleFonts.quicksand(
+          fontSize: 15,
+          color: ModernColors.onSurface,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
   }
 
-  Widget _buildChatList() {
-    return StreamBuilder<List<Conversation>>(
-      stream: _chatService.getUserConversations(),
-      builder: (context, snapshot) {
-        // DEBUG: Print connection state
-        print('🔄 Chat List StreamBuilder: ${snapshot.connectionState}');
+  Widget _buildCompactTabs() {
+    return Container(
+        height: 42,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            _buildCompactTab('all', 'All Chats', Icons.forum_rounded),
+            const SizedBox(width: 8),
+            _buildCompactTab('unread', 'Unread', Icons.mark_email_unread_rounded),
+            const SizedBox(width: 8),
+            _buildCompactTab('favorite', 'Favourite', Icons.star_rounded),
+          ],
+        )
+    );
+  }
 
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          print('⏳ Loading conversations...');
-          return const Center(
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-            ),
-          );
-        }
-
-        if (snapshot.hasError) {
-          print('❌ Error loading conversations: ${snapshot.error}');
-          print('❌ Stack trace: ${snapshot.stackTrace}');
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, size: 60, color: Colors.red),
-                const SizedBox(height: 16),
-                Text(
-                  'Error loading conversations',
-                  style: GoogleFonts.quicksand(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.red,
-                  ),
+  Widget _buildCompactTab(String value, String label, IconData icon) {
+    final isActive = _activeTab == value;
+    return Expanded(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => setState(() => _activeTab = value),
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              gradient: isActive
+                  ? LinearGradient(
+                colors: [ModernColors.primary, ModernColors.primaryDark],
+              )
+                  : null,
+              color: isActive ? null : Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: isActive
+                  ? [
+                BoxShadow(
+                  color: ModernColors.primary.withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
                 ),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () {
-                    print('🔄 Retrying conversations load...');
-                    setState(() {});
-                  },
+              ]
+                  : [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 16,
+                  color: isActive ? Colors.white : ModernColors.primary,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
                   child: Text(
-                    'Retry',
+                    label,
                     style: GoogleFonts.quicksand(
-                      color: Colors.blue,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                      color: isActive ? Colors.white : ModernColors.onSurface,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
             ),
-          );
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserList() {
+    return StreamBuilder<List<Conversation>>(
+      stream: _chatService.getUserConversations(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _buildShimmerLoading();
         }
 
-        if (!snapshot.hasData) {
-          print('📭 No data in snapshot');
+        if (snapshot.hasError) {
+          return _buildErrorState();
+        }
+
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return _buildEmptyState();
         }
 
         final conversations = snapshot.data!;
-        print('✅ Found ${conversations.length} conversations');
+        _processConversations(conversations);
 
-        // DEBUG: Print each conversation
-        for (var i = 0; i < conversations.length; i++) {
-          final conv = conversations[i];
-          print('   [$i] ID: ${conv.conversationId}');
-          print('       Users: ${conv.user1Id} ↔ ${conv.user2Id}');
-          print('       Last message: ${conv.lastMessage}');
-          print('       Last time: ${conv.lastMessageTime}');
-          final unread =
-              conv.unreadCount[_chatService.currentUserId ?? ''] ?? 0;
-          print('       Unread count: $unread');
+        final userEntries = _userConversationMap.entries.toList();
+        final filteredUsers = _filterUsersByTab(userEntries);
+
+        filteredUsers.sort(
+              (a, b) => b.value.lastMessageTime.compareTo(a.value.lastMessageTime),
+        );
+
+        if (filteredUsers.isEmpty) {
+          return _buildEmptyStateForTab();
         }
 
-        final filteredConversations = _filterConversations(conversations);
-        print('🔍 Filtered to ${filteredConversations.length} conversations');
-
-        if (filteredConversations.isEmpty) {
-          print('📭 No conversations after filtering');
-          return _buildEmptyState();
-        }
-
-        return ListView.builder(
+        return AnimatedList(
           physics: const BouncingScrollPhysics(),
-          itemCount: filteredConversations.length,
-          itemBuilder: (context, index) {
-            final conversation = filteredConversations[index];
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          initialItemCount: filteredUsers.length,
+          itemBuilder: (context, index, animation) {
+            final entry = filteredUsers[index];
+            final conversation = entry.value;
+            final otherUserId = entry.key;
             final isSelected = _selectedConversations.contains(
               conversation.conversationId,
             );
 
-            print(
-              '👤 Loading user for conversation: ${conversation.conversationId}',
-            );
-
-            return FutureBuilder<ChatUser?>(
-              future: _getOtherUser(conversation),
-              builder: (context, userSnapshot) {
-                print(
-                  '   👤 User snapshot state: ${userSnapshot.connectionState}',
-                );
-
-                if (userSnapshot.connectionState == ConnectionState.waiting) {
-                  print('   ⏳ Loading user data...');
-                  return _buildLoadingChatItem();
-                }
-
-                if (userSnapshot.hasError) {
-                  print('   ❌ Error loading user: ${userSnapshot.error}');
-                  print('   ❌ Stack trace: ${userSnapshot.stackTrace}');
-                  return const SizedBox();
-                }
-
-                if (!userSnapshot.hasData) {
-                  print('   ❌ No user data found');
-                  return const SizedBox();
-                }
-
-                final otherUser = userSnapshot.data!;
-                final unreadCount =
-                    conversation.unreadCount[_chatService.currentUserId ??
-                        ''] ??
-                    0;
-                final isUnread = unreadCount > 0;
-                final isFavorite =
-                    conversation.isFavorite[_chatService.currentUserId ?? ''] ??
-                    false;
-
-                print(
-                  '   ✅ User loaded: ${otherUser.name} (${otherUser.sessionId})',
-                );
-                print('   📱 Unread: $unreadCount, Favorite: $isFavorite');
-
-                return _buildChatItem(
-                  conversation: conversation,
-                  otherUser: otherUser,
-                  isSelected: isSelected,
-                  isUnread: isUnread,
-                  isFavorite: isFavorite,
-                  unreadCount: unreadCount,
-                );
-              },
+            return SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.5),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+                reverseCurve: Curves.easeInCubic,
+              )),
+              child: FadeTransition(
+                opacity: animation,
+                child: _buildChatItem(otherUserId, conversation, isSelected),
+              ),
             );
           },
         );
@@ -397,221 +358,478 @@ void initState() {
     );
   }
 
-  Widget _buildLoadingChatItem() {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      leading: Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.grey[200],
-        ),
-        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-      ),
-      title: Container(height: 16, width: 120, color: Colors.grey[200]),
-      subtitle: Container(
-        height: 12,
-        width: 80,
-        margin: const EdgeInsets.only(top: 4),
-        color: Colors.grey[200],
-      ),
-    );
-  }
-
-  Widget _buildChatItem({
-    required Conversation conversation,
-    required ChatUser otherUser,
-    required bool isSelected,
-    required bool isUnread,
-    required bool isFavorite,
-    required int unreadCount,
-  }) {
-    return GestureDetector(
-      onTap: () {
-        if (_isSelectionMode) {
-          _toggleConversationSelection(conversation.conversationId);
-        } else {
-          _openChatScreen(conversation, otherUser);
+  Widget _buildChatItem(String userId, Conversation conversation, bool isSelected) {
+    return FutureBuilder<ChatUser?>(
+      future: _getUserWithCache(userId),
+      builder: (context, userSnapshot) {
+        if (userSnapshot.connectionState == ConnectionState.waiting) {
+          return _buildShimmerChatItem();
         }
-      },
-      onLongPress: () => _showChatOptions(conversation),
-      child: Container(
-        color: isSelected ? Colors.blue[50] : Colors.transparent,
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 8,
-          ),
-          leading: Stack(
-            children: [
-              _buildProfilePicture(otherUser),
-              if (isFavorite)
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.amber,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                    child: const Icon(
-                      Icons.star,
-                      size: 12,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          title: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  otherUser.name,
-                  style: GoogleFonts.quicksand(
-                    fontWeight: isUnread ? FontWeight.w700 : FontWeight.w600,
-                    fontSize: 16,
-                    color: isUnread ? Colors.black : Colors.black87,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (isFavorite) Icon(Icons.star, size: 16, color: Colors.amber),
-              const SizedBox(width: 4),
-              Text(
-                _formatTimestamp(conversation.lastMessageTime),
-                style: GoogleFonts.quicksand(
-                  fontSize: 12,
-                  color: isUnread ? Colors.black87 : Colors.grey[600],
-                  fontWeight: isUnread ? FontWeight.w600 : FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          subtitle: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  conversation.lastMessage,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.quicksand(
-                    color: isUnread ? Colors.black87 : Colors.grey[600],
-                    fontWeight: isUnread ? FontWeight.w600 : FontWeight.w500,
-                  ),
-                ),
-              ),
-              if (isUnread && unreadCount > 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
+
+        if (!userSnapshot.hasData || userSnapshot.hasError) {
+          return const SizedBox();
+        }
+
+        final user = userSnapshot.data!;
+        final currentUserId = _chatService.currentUserId ?? '';
+        final unreadCount = conversation.unreadCount[currentUserId] ?? 0;
+        final isUnread = unreadCount > 0;
+        final isFavorite = conversation.isFavorite[currentUserId] ?? false;
+
+        return StreamBuilder<QuerySnapshot>(
+          stream: _firestore
+              .collection('User')
+              .where('SessionId', isEqualTo: userId)
+              .snapshots(),
+          builder: (context, statusSnapshot) {
+            bool isUserOnline = user.isOnline;
+
+            if (statusSnapshot.hasData && statusSnapshot.data!.docs.isNotEmpty) {
+              final data = statusSnapshot.data!.docs.first.data() as Map<String, dynamic>;
+              isUserOnline = data['isOnline'] ?? false;
+            }
+
+            return Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  if (_isSelectionMode) {
+                    _toggleConversationSelection(conversation.conversationId);
+                  } else {
+                    _openChatScreen(conversation, user);
+                  }
+                },
+                onLongPress: () => _showChatOptions(conversation, user),
+                borderRadius: BorderRadius.circular(12),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                   decoration: BoxDecoration(
-                    color: Colors.blue,
-                    borderRadius: BorderRadius.circular(10),
+                    color: isSelected
+                        ? ModernColors.primaryContainer
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Text(
-                    unreadCount > 9 ? '9+' : unreadCount.toString(),
-                    style: GoogleFonts.quicksand(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  child: Row(
+                    children: [
+                      // Profile image with shimmer effect
+                      if (userSnapshot.connectionState == ConnectionState.waiting)
+                        Shimmer.fromColors(
+                          baseColor: ModernColors.outline.withOpacity(0.3),
+                          highlightColor: ModernColors.surface,
+                          child: Container(
+                            width: 52,
+                            height: 52,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white,
+                            ),
+                          ),
+                        )
+                      else
+                        Stack(
+                          children: [
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: isUserOnline
+                                    ? Border.all(
+                                  color: const Color(0xFF00C853),
+                                  width: 2,
+                                )
+                                    : null,
+                              ),
+                              child: ClipOval(
+                                child: ProfileImage(
+                                  size: 52,
+                                  imageUrl: user.profilePath,
+                                ),
+                              ),
+                            ),
+                            if (isUserOnline)
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: Container(
+                                  width: 14,
+                                  height: 14,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF00C853),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: ModernColors.background,
+                                      width: 2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            if (isFavorite)
+                              Positioned(
+                                top: -2,
+                                right: -2,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFFA726),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: ModernColors.background,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.star,
+                                    size: 10,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Top row with name and time - using fixed height container
+                            Container(
+                              height: 20, // Fixed height to center everything
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Flexible(
+                                    child: Container(
+                                      alignment: Alignment.centerLeft,
+                                      child: Text(
+                                        user.name,
+                                        style: GoogleFonts.quicksand(
+                                          fontWeight: isUnread ? FontWeight.w800 : FontWeight.w800, // Both are w800 now
+                                          fontSize: 15,
+                                          color: ModernColors.onSurface,
+                                          letterSpacing: -0.2,
+                                          height: 1.0, // Fixed line height
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      _formatTimestamp(conversation.lastMessageTime),
+                                      style: GoogleFonts.quicksand(
+                                        fontSize: isUnread ? 12 : 11, // Slightly larger for unread
+                                        color: isUnread ? Colors.black : ModernColors.onSurfaceVariant.withOpacity(0.9),
+                                        fontWeight: isUnread ? FontWeight.w800 : FontWeight.w600, // Bolder for unread
+                                        height: 1.0, // Fixed line height
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 4), // Reduced spacing
+                            // Message preview and unread count row
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    conversation.lastMessage,
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                    style: GoogleFonts.quicksand(
+                                      color: isUnread ? Colors.black : ModernColors.onSurfaceVariant.withOpacity(0.95),
+                                      fontWeight: isUnread ? FontWeight.w700 : FontWeight.w600, // Bolder for unread
+                                      fontSize: isUnread ? 14 : 13, // Slightly larger for unread
+                                      letterSpacing: isUnread ? -0.05 : -0.1, // Slightly tighter letter spacing for unread
+                                    ),
+                                  ),
+                                ),
+                                // Show unread count below the time (on the right side)
+                                if (isUnread && unreadCount > 0)
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 300),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      gradient: const LinearGradient(
+                                        colors: [
+                                          ModernColors.primary,
+                                          ModernColors.primaryDark,
+                                        ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      unreadCount > 9 ? '9+' : unreadCount.toString(),
+                                      style: GoogleFonts.quicksand(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w900, // Made bolder
+                                        height: 1.0,
+                                      ),
+                                    ),
+                                  ),
+                                if (_isSelectionMode)
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 300),
+                                    width: 22,
+                                    height: 22,
+                                    margin: const EdgeInsets.only(left: 8),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? ModernColors.primary
+                                          : Colors.transparent,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? ModernColors.primary
+                                            : ModernColors.outline.withOpacity(0.5),
+                                        width: isSelected ? 0 : 1.5,
+                                      ),
+                                    ),
+                                    child: isSelected
+                                        ? const Icon(
+                                      Icons.check,
+                                      size: 14,
+                                      color: Colors.white,
+                                    )
+                                        : null,
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildShimmerLoading() {
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: 10,
+      separatorBuilder: (context, index) => const SizedBox(height: 1),
+      itemBuilder: (context, index) {
+        return Shimmer.fromColors(
+          baseColor: ModernColors.outline.withOpacity(0.3),
+          highlightColor: ModernColors.surface,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        width: 200,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildShimmerChatItem() {
+    return Shimmer.fromColors(
+        baseColor: ModernColors.outline.withOpacity(0.3),
+        highlightColor: ModernColors.surface,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: 200,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
-          trailing: _isSelectionMode
-              ? Checkbox(
-                  value: isSelected,
-                  onChanged: (_) =>
-                      _toggleConversationSelection(conversation.conversationId),
-                )
-              : null,
-        ),
-      ),
+        )
     );
   }
 
-  Widget _buildProfilePicture(ChatUser user) {
-    return Container(
-      width: 56,
-      height: 56,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.blue, width: 1.5),
-      ),
-      child: ClipOval(
-        child: user.profilePath.isNotEmpty
-            ? Image.network(
-                user.profilePath,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return _buildDefaultProfilePicture(user);
-                },
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return _buildDefaultProfilePicture(user);
-                },
-              )
-            : _buildDefaultProfilePicture(user),
-      ),
+  Widget _buildSearchResults() {
+    final userEntries = _userConversationMap.entries.toList();
+    final searchQuery = _searchQuery.toLowerCase();
+
+    if (userEntries.isEmpty) {
+      return _buildEmptySearchState();
+    }
+
+    final filteredUsers = userEntries.where((entry) {
+      final userId = entry.key;
+      final user = _cachedUsers[userId];
+      if (user == null) return false;
+
+      final userName = user.name.toLowerCase();
+      final userEmail = user.email.toLowerCase();
+      return userName.contains(searchQuery) || userEmail.contains(searchQuery);
+    }).toList();
+
+    if (filteredUsers.isEmpty) {
+      return _buildEmptySearchState();
+    }
+
+    return ListView.separated(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: filteredUsers.length,
+      separatorBuilder: (context, index) => const SizedBox(height: 1),
+      itemBuilder: (context, index) {
+        final entry = filteredUsers[index];
+        final conversation = entry.value;
+        final userId = entry.key;
+
+        return _buildChatItem(userId, conversation, false);
+      },
     );
   }
 
-  Widget _buildDefaultProfilePicture(ChatUser user) {
+  Widget _buildModernSelectionBar() {
     return Container(
-      color: Colors.blue[100],
-      child: Center(
-        child: Text(
-          user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
-          style: GoogleFonts.quicksand(
-            color: Colors.blue,
-            fontWeight: FontWeight.w700,
-            fontSize: 20,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSelectionBottomBar() {
-    return Container(
-      height: 60,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey[300]!)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          TextButton.icon(
-            icon: const Icon(Icons.mark_email_read, color: Colors.amber),
-            label: Text(
-              'Read all',
-              style: GoogleFonts.quicksand(
-                color: Colors.amber,
-                fontWeight: FontWeight.w600,
-              ),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, -2),
             ),
-            onPressed: _markSelectedAsRead,
-          ),
-          Container(height: 30, width: 1, color: Colors.grey[300]),
-          TextButton.icon(
-            icon: const Icon(Icons.delete, color: Colors.red),
-            label: Text(
-              'Delete',
-              style: GoogleFonts.quicksand(
-                color: Colors.red,
-                fontWeight: FontWeight.w600,
-              ),
+          ],
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildSelectionButton(
+                    icon: Icons.mark_email_read_rounded,
+                    label: 'Mark Read',
+                    color: ModernColors.primary,
+                    onTap: _markSelectedAsRead,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildSelectionButton(
+                    icon: Icons.delete_rounded,
+                    label: 'Delete',
+                    color: const Color(0xFFEF5350),
+                    onTap: _showModernDeleteDialog,
+                  ),
+                ),
+              ],
             ),
-            onPressed: _deleteSelectedConversations,
           ),
-        ],
+        )
+    );
+  }
+
+  Widget _buildSelectionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withOpacity(0.3)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: GoogleFonts.quicksand(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -621,268 +839,189 @@ void initState() {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.chat_bubble_outline, size: 80, color: Colors.grey),
+          Icon(
+            Icons.chat_bubble_outline_rounded,
+            size: 80,
+            color: ModernColors.onSurfaceVariant.withOpacity(0.5),
+          ),
           const SizedBox(height: 20),
           Text(
-            'No conversations yet',
+            'No Messages Yet',
+            style: GoogleFonts.quicksand(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: ModernColors.onSurface,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Start chatting with room owners',
+            style: GoogleFonts.quicksand(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: ModernColors.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyStateForTab() {
+    String message = '';
+    IconData icon = Icons.chat_bubble_outline_rounded;
+
+    switch (_activeTab) {
+      case 'unread':
+        message = 'No unread messages';
+        icon = Icons.mark_email_read_rounded;
+        break;
+      case 'favorite':
+        message = 'No favourite conversations';
+        icon = Icons.star_outline_rounded;
+        break;
+      default:
+        message = 'No conversations';
+    }
+
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            icon,
+            size: 80,
+            color: ModernColors.onSurfaceVariant.withOpacity(0.5),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            message,
             style: GoogleFonts.quicksand(
               fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey,
+              fontWeight: FontWeight.w700,
+              color: ModernColors.onSurface,
             ),
           ),
-          const SizedBox(height: 10),
-          Text(
-            'Start a chat by messaging a room owner',
-            style: GoogleFonts.quicksand(fontSize: 14, color: Colors.grey[600]),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptySearchState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.search_off_rounded,
+            size: 80,
+            color: ModernColors.onSurfaceVariant.withOpacity(0.5),
           ),
           const SizedBox(height: 20),
-          // Optional: Add a refresh button
-          ElevatedButton.icon(
-            onPressed: () {
-              print('🔄 Manual refresh triggered');
-              setState(() {});
-            },
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh Chat List'),
+          Text(
+            'No Results Found',
+            style: GoogleFonts.quicksand(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: ModernColors.onSurface,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Try different keywords',
+            style: GoogleFonts.quicksand(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: ModernColors.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.error_outline_rounded,
+            size: 80,
+            color: const Color(0xFFEF5350),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Something Went Wrong',
+            style: GoogleFonts.quicksand(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: ModernColors.onSurface,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _refreshUserList,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
+              backgroundColor: ModernColors.primary,
               foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: Text(
+              'Try Again',
+              style: GoogleFonts.quicksand(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+              ),
             ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSearchResults() {
-    return StreamBuilder<List<Conversation>>(
-      stream: _chatService.getUserConversations(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-            ),
-          );
-        }
-
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return Center(
-            child: Text(
-              'No conversations found',
-              style: GoogleFonts.quicksand(
-                fontSize: 16,
-                color: Colors.grey[600],
-              ),
-            ),
-          );
-        }
-
-        final conversations = snapshot.data!;
-
-        // Group conversations by other user and sort by most recent
-        final userMap = <String, Conversation>{};
-        for (final conv in conversations) {
-          final otherUserId = conv.user1Id == _chatService.currentUserId
-              ? conv.user2Id
-              : conv.user1Id;
-          if (!userMap.containsKey(otherUserId) ||
-              conv.lastMessageTime.isAfter(
-                userMap[otherUserId]!.lastMessageTime,
-              )) {
-            userMap[otherUserId] = conv;
-          }
-        }
-
-        // Sort by most recent message time
-        final sortedUsers = userMap.entries.toList()
-          ..sort(
-            (a, b) =>
-                b.value.lastMessageTime.compareTo(a.value.lastMessageTime),
-          );
-
-        return ListView.builder(
-          physics: const BouncingScrollPhysics(),
-          itemCount: sortedUsers.length,
-          itemBuilder: (context, index) {
-            final entry = sortedUsers[index];
-            final conversation = entry.value;
-
-            return FutureBuilder<ChatUser?>(
-              future: _chatService.getUserById(entry.key),
-              builder: (context, userSnapshot) {
-                if (userSnapshot.connectionState == ConnectionState.waiting) {
-                  return _buildLoadingChatItem();
-                }
-
-                if (!userSnapshot.hasData || userSnapshot.hasError) {
-                  return const SizedBox();
-                }
-
-                final user = userSnapshot.data!;
-                final userName = user.name.toLowerCase();
-                final userEmail = user.email.toLowerCase();
-                final query = _searchQuery.toLowerCase();
-
-                // Filter by search query
-                if (!userName.contains(query) && !userEmail.contains(query)) {
-                  return const SizedBox();
-                }
-
-                return _buildSearchResultItem(user, conversation);
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildSearchResultItem(ChatUser user, Conversation conversation) {
-    final isFavorite =
-        conversation.isFavorite[_chatService.currentUserId ?? ''] ?? false;
-
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      leading: Stack(
-        children: [
-          _buildProfilePicture(user),
-          if (isFavorite)
-            Positioned(
-              bottom: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Colors.amber,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white, width: 2),
-                ),
-                child: const Icon(Icons.star, size: 12, color: Colors.white),
-              ),
-            ),
-        ],
-      ),
-      title: Row(
-        children: [
-          Expanded(
-            child: Text(
-              user.name,
-              style: GoogleFonts.quicksand(
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-                color: Colors.black87,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (isFavorite) Icon(Icons.star, size: 16, color: Colors.amber),
-        ],
-      ),
-      subtitle: Text(
-        user.email,
-        style: GoogleFonts.quicksand(color: Colors.grey[600]),
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Text(
-        'Tap to chat',
-        style: GoogleFonts.quicksand(
-          fontSize: 12,
-          color: Colors.blue,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      onTap: () {
-        _openChatScreen(conversation, user);
-      },
     );
   }
 
   // Helper Methods
-  Future<ChatUser?> _getOtherUser(Conversation conversation) async {
-    try {
-      final currentUserId = _chatService.currentUserId;
-      if (currentUserId == null) {
-        print('❌ No current user ID found');
-        return null;
-      }
-
-      print(
-        '🔍 Getting other user for conversation: ${conversation.conversationId}',
-      );
-      print('   Current user: $currentUserId');
-      print(
-        '   User1: ${conversation.user1Id}, User2: ${conversation.user2Id}',
-      );
-
-      final otherUserId = conversation.user1Id == currentUserId
-          ? conversation.user2Id
-          : conversation.user1Id;
-
-      print('   Other user ID: $otherUserId');
-
-      if (otherUserId.isEmpty) {
-        print('❌ Other user ID is empty');
-        return null;
-      }
-
-      final otherUser = await _chatService.getUserById(otherUserId);
-
-      if (otherUser == null) {
-        print('❌ No user found with ID: $otherUserId');
-        print('   Creating temporary user...');
-
-        // Create a temporary user as fallback
-        return ChatUser(
-          id: otherUserId,
-          name: 'User $otherUserId',
-          email: '',
-          phone: '',
-          sessionId: otherUserId,
-          profilePath: '',
-          createdAt: DateTime.now(),
-          isOnline: false,
-        );
-      }
-
-      print('✅ Found other user: ${otherUser.name}');
-      return otherUser;
-    } catch (e) {
-      print('❌ Error getting other user: $e');
-      print('Stack trace: ${e.toString()}');
-      return null;
-    }
-  }
-
-  List<Conversation> _filterConversations(List<Conversation> conversations) {
+  List<MapEntry<String, Conversation>> _filterUsersByTab(
+      List<MapEntry<String, Conversation>> userEntries) {
     final currentUserId = _chatService.currentUserId;
     if (currentUserId == null) return [];
 
     switch (_activeTab) {
       case 'unread':
-        return conversations.where((conv) {
-          final unreadCount = conv.unreadCount[currentUserId] ?? 0;
+        return userEntries.where((entry) {
+          final conversation = entry.value;
+          final unreadCount = conversation.unreadCount[currentUserId] ?? 0;
           return unreadCount > 0;
         }).toList();
-
       case 'favorite':
-        return conversations.where((conv) {
-          return conv.isFavorite[currentUserId] ?? false;
+        return userEntries.where((entry) {
+          final conversation = entry.value;
+          return conversation.isFavorite[currentUserId] ?? false;
         }).toList();
-
       default:
-        return conversations;
+        return userEntries;
     }
+  }
+
+  Future<ChatUser?> _getUserWithCache(String userId) async {
+    if (_cachedUsers.containsKey(userId)) {
+      return _cachedUsers[userId];
+    }
+
+    final user = await _chatService.getUserById(userId);
+    if (user != null) {
+      _cachedUsers[userId] = user;
+    }
+    return user;
   }
 
   String _formatTimestamp(DateTime timestamp) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
-    final weekAgo = today.subtract(const Duration(days: 7));
-
     final messageDate = DateTime(
       timestamp.year,
       timestamp.month,
@@ -896,28 +1035,17 @@ void initState() {
       return '$hour:$minute $amPm';
     } else if (messageDate == yesterday) {
       return 'Yesterday';
-    } else if (timestamp.isAfter(weekAgo)) {
-      switch (messageDate.weekday) {
-        case 1:
-          return 'Mon';
-        case 2:
-          return 'Tue';
-        case 3:
-          return 'Wed';
-        case 4:
-          return 'Thu';
-        case 5:
-          return 'Fri';
-        case 6:
-          return 'Sat';
-        case 7:
-          return 'Sun';
-        default:
-          return '';
-      }
     } else {
       return '${timestamp.month}/${timestamp.day}';
     }
+  }
+
+  void _refreshUserList() {
+    setState(() {
+      _cachedUsers.clear();
+      _userConversationMap.clear();
+    });
+    _preloadUserStatus();
   }
 
   void _toggleSelectionMode() {
@@ -942,7 +1070,7 @@ void initState() {
     });
   }
 
-  void _showChatOptions(Conversation conversation) {
+  void _showChatOptions(Conversation conversation, ChatUser user) {
     final currentUserId = _chatService.currentUserId;
     if (currentUserId == null) return;
 
@@ -955,56 +1083,88 @@ void initState() {
       backgroundColor: Colors.transparent,
       builder: (context) {
         return Container(
-          margin: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(20),
+              topRight: Radius.circular(20),
+            ),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(height: 16),
-              // Favorite/Unfavorite option
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: isFavorite
-                      ? const Color(0xFFFFF7E7)
-                      : const Color(0xFFFFF7E7),
-                  child: Icon(
-                    isFavorite ? Icons.star : Icons.star_border,
-                    color: Colors.amber,
-                  ),
+              const SizedBox(height: 8), // Reduced from 12
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: ModernColors.outline.withOpacity(0.6),
+                  borderRadius: BorderRadius.circular(2),
                 ),
-                title: Text(
-                  isFavorite ? 'Remove from favorite' : 'Add to favorite',
-                  style: GoogleFonts.quicksand(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+              ),
+              const SizedBox(height: 16), // Reduced from 20
+              // User info section - made more compact
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16), // Reduced from 20
+                child: Row(
+                  children: [
+                    Container(
+                      width: 48, // Reduced from 56
+                      height: 48,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                      ),
+                      child: ClipOval(
+                        child: ProfileImage(
+                          size: 48, // Reduced from 56
+                          imageUrl: user.profilePath,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12), // Reduced from 16
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            user.name,
+                            style: GoogleFonts.quicksand(
+                              fontSize: 16, // Reduced from 18
+                              fontWeight: FontWeight.w700,
+                              color: ModernColors.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            user.email,
+                            style: GoogleFonts.quicksand(
+                              fontSize: 12, // Reduced from 13
+                              fontWeight: FontWeight.w700, // Made bold
+                              color: Colors.black, // Made black
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
+              ),
+              const SizedBox(height: 16), // Reduced from 20
+              // Options section - made more compact
+              _buildCompactBottomSheetOption(
+                icon: isFavorite ? Icons.star : Icons.star_outline,
+                iconColor: const Color(0xFFFFA726),
+                title: isFavorite ? 'Remove from Favourites' : 'Add to Favourites',
                 onTap: () {
                   Navigator.pop(context);
                   _toggleFavorite(conversation);
                 },
               ),
-              // Read/Unread option
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: isUnread
-                      ? const Color(0xFFE7F3FF)
-                      : const Color(0xFFE7F3FF),
-                  child: Icon(
-                    isUnread ? Icons.mark_email_read : Icons.markunread,
-                    color: isUnread ? Colors.green : Colors.blue,
-                  ),
-                ),
-                title: Text(
-                  isUnread ? 'Mark as read' : 'Mark as unread',
-                  style: GoogleFonts.quicksand(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+              _buildCompactBottomSheetOption(
+                icon: isUnread ? Icons.mark_email_read : Icons.mark_email_unread,
+                iconColor: ModernColors.primary,
+                title: isUnread ? 'Mark as Read' : 'Mark as Unread',
                 onTap: () {
                   Navigator.pop(context);
                   if (isUnread) {
@@ -1014,45 +1174,42 @@ void initState() {
                   }
                 },
               ),
-              // Delete option
-              ListTile(
-                leading: const CircleAvatar(
-                  backgroundColor: Color(0xFFFFE7E7),
-                  child: Icon(Icons.delete, color: Colors.red),
-                ),
-                title: Text(
-                  'Delete',
-                  style: GoogleFonts.quicksand(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+              _buildCompactBottomSheetOption(
+                icon: Icons.delete,
+                iconColor: const Color(0xFFEF5350),
+                title: 'Delete Conversation',
                 onTap: () {
                   Navigator.pop(context);
-                  _deleteConversation(conversation);
+                  _showModernDeleteDialogSingle(conversation);
                 },
               ),
-              const SizedBox(height: 16),
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey[200],
-                    foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+              const SizedBox(height: 8), // Reduced from 12
+              // Cancel button - made more compact
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16), // Reduced from 20
+                child: SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12), // Reduced from 14
+                      backgroundColor: ModernColors.outline.withOpacity(0.3), // Reduced opacity
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10), // Reduced from 12
+                      ),
                     ),
-                    elevation: 0,
-                  ),
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(
-                    'Cancel',
-                    style: GoogleFonts.quicksand(fontWeight: FontWeight.w600),
+                    child: Text(
+                      'Cancel',
+                      style: GoogleFonts.quicksand(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14, // Reduced from 15
+                        color: ModernColors.onSurface,
+                      ),
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 16), // Reduced from 24
             ],
           ),
         );
@@ -1060,16 +1217,57 @@ void initState() {
     );
   }
 
-  void _openChatScreen(Conversation conversation, ChatUser otherUser) {
-    // Mark messages as read when opening chat
-    _chatService.markMessagesAsRead(conversation.conversationId);
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            ChatScreen(conversation: conversation, otherUser: otherUser),
+  Widget _buildCompactBottomSheetOption({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), // Reduced vertical padding
+          child: Row(
+            children: [
+              Container(
+                width: 36, // Reduced from 40
+                height: 36,
+                decoration: BoxDecoration(
+                  color: iconColor.withOpacity(0.08), // Reduced opacity
+                  borderRadius: BorderRadius.circular(8), // Reduced from 10
+                ),
+                child: Icon(icon, color: iconColor, size: 20), // Reduced from 22
+              ),
+              const SizedBox(width: 12), // Reduced from 16
+              Expanded(
+                child: Text(
+                  title,
+                  style: GoogleFonts.quicksand(
+                    fontSize: 14, // Reduced from 15
+                    fontWeight: FontWeight.w600,
+                    color: ModernColors.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
+    );
+  }
+
+
+
+  void _openChatScreen(Conversation conversation, ChatUser otherUser) {
+    _chatService.markMessagesAsRead(conversation.conversationId);
+    Get.to(
+          () => ChatScreen(
+        conversation: conversation,
+        otherUser: otherUser,
+      ),
+      transition: Transition.rightToLeft,
     );
   }
 
@@ -1080,64 +1278,207 @@ void initState() {
       _chatService.markMessagesAsRead(conversationId);
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Marked ${_selectedConversations.length} conversation${_selectedConversations.length > 1 ? 's' : ''} as read',
-          style: GoogleFonts.quicksand(),
-        ),
-        backgroundColor: Colors.green,
-      ),
+    _toastService.showSuccessMessage(
+      'Marked ${_selectedConversations.length} conversation${_selectedConversations.length > 1 ? 's' : ''} as read',
     );
 
     _selectedConversations.clear();
     _toggleSelectionMode();
   }
 
-  void _deleteSelectedConversations() {
+  void _showModernDeleteDialog() {
     if (_selectedConversations.isEmpty) return;
 
+    final count = _selectedConversations.length;
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          'Delete Conversations',
-          style: GoogleFonts.quicksand(fontWeight: FontWeight.w600),
-        ),
-        content: Text(
-          'Are you sure you want to delete ${_selectedConversations.length} conversation${_selectedConversations.length > 1 ? 's' : ''}?',
-          style: GoogleFonts.quicksand(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: GoogleFonts.quicksand(color: Colors.blue),
+      builder: (context) => _buildModernDialog(
+        context: context, // Pass context here
+        title: 'Delete ${count > 1 ? 'Conversations' : 'Conversation'}',
+        message: 'Are you sure want to delete ${count > 1 ? 'these $count conversations?' : 'this conversation?'}',
+        primaryButtonText: 'Delete',
+        primaryButtonColor: const Color(0xFFEF5350),
+        primaryAction: () async {
+          for (final conversationId in _selectedConversations) {
+            await _chatService.deleteConversation(conversationId);
+          }
+          _toastService.showSuccessMessage(
+            'Deleted $count conversation${count > 1 ? 's' : ''}',
+          );
+          _selectedConversations.clear();
+          _toggleSelectionMode();
+        },
+        secondaryButtonText: 'Cancel',
+      ),
+    );
+  }
+
+  void _showModernDeleteDialogSingle(Conversation conversation) {
+    showDialog(
+      context: context,
+      builder: (context) => _buildModernDialog(
+        context: context, // Pass context here
+        title: 'Delete Conversation',
+        message: 'Are you sure want to delete this conversation?',
+        primaryButtonText: 'Delete',
+        primaryButtonColor: const Color(0xFFEF5350),
+        primaryAction: () async {
+          try {
+            await _chatService.deleteConversation(conversation.conversationId);
+            _toastService.showSuccessMessage('Conversation deleted');
+          } catch (e) {
+            _toastService.showErrorMessage('Failed to delete conversation');
+          }
+        },
+        secondaryButtonText: 'Cancel',
+      ),
+    );
+  }
+
+  Widget _buildModernDialog({
+    required BuildContext context, // Add BuildContext parameter
+    required String title,
+    required String message,
+    required String primaryButtonText,
+    required Color primaryButtonColor,
+    required VoidCallback primaryAction,
+    required String secondaryButtonText,
+  }) {
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      elevation: 0,
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Title - reduced font size
+            Text(
+              title,
+              style: GoogleFonts.quicksand(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: ModernColors.onSurface,
+              ),
+              textAlign: TextAlign.center,
             ),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              // TODO: Implement delete conversations from Firestore
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Deleted ${_selectedConversations.length} conversation${_selectedConversations.length > 1 ? 's' : ''}',
-                    style: GoogleFonts.quicksand(),
+            const SizedBox(height: 12),
+            // Message - made black and bold
+            Text(
+              message,
+              style: GoogleFonts.quicksand(
+                fontSize: 14,
+                fontWeight: FontWeight.w800, // Made bolder (w800)
+                color: Colors.black, // Made black
+                height: 1.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            // Buttons - reduced height
+            Row(
+              children: [
+                // Cancel Button (Purple like tabs) - Now only closes dialog
+                Expanded(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => Navigator.of(context).pop(), // Use context parameter
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [ModernColors.primary, ModernColors.primaryDark],
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: [
+                            BoxShadow(
+                              color: ModernColors.primary.withOpacity(0.3),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.cancel_rounded,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              secondaryButtonText,
+                              style: GoogleFonts.quicksand(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                  backgroundColor: Colors.red,
                 ),
-              );
-              _selectedConversations.clear();
-              _toggleSelectionMode();
-            },
-            child: Text(
-              'Delete',
-              style: GoogleFonts.quicksand(color: Colors.red),
+                const SizedBox(width: 12),
+                // Delete Button (Red like tabs)
+                Expanded(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        primaryAction();
+                        Navigator.of(context).pop(); // Also close dialog after delete action
+                      },
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: primaryButtonColor,
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: [
+                            BoxShadow(
+                              color: primaryButtonColor.withOpacity(0.3),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.delete_rounded,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              primaryButtonText,
+                              style: GoogleFonts.quicksand(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1147,111 +1488,41 @@ void initState() {
       final currentUserId = _chatService.currentUserId;
       if (currentUserId == null) return;
 
-      final newFavoriteStatus =
-          !(conversation.isFavorite[currentUserId] ?? false);
+      final newFavoriteStatus = !(conversation.isFavorite[currentUserId] ?? false);
 
-      // Update Firestore
       await _chatService.toggleFavorite(
         conversation.conversationId,
         currentUserId,
         newFavoriteStatus,
       );
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            newFavoriteStatus ? 'Added to favorites' : 'Removed from favorites',
-            style: GoogleFonts.quicksand(),
-          ),
-          backgroundColor: newFavoriteStatus ? Colors.green : Colors.amber,
-        ),
+      _toastService.showSuccessMessage(
+        newFavoriteStatus ? 'Added to Favourites' : 'Removed from Favourites',
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e', style: GoogleFonts.quicksand()),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _toastService.showErrorMessage('Failed to update favourites');
     }
   }
 
   Future<void> _markConversationAsRead(Conversation conversation) async {
     try {
       await _chatService.markMessagesAsRead(conversation.conversationId);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Marked as read'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      _toastService.showSuccessMessage('Marked as Read');
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
+      _toastService.showErrorMessage('Failed to mark as read');
     }
   }
 
   Future<void> _markConversationAsUnread(Conversation conversation) async {
     try {
-      final currentUserId = _chatService.currentUserId;
-      if (currentUserId == null) return;
-
-      // Increment unread count by 1
       await _chatService.markConversationAsUnread(conversation.conversationId);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Marked as unread'),
-          backgroundColor: Colors.amber,
-        ),
-      );
+      _toastService.showSuccessMessage('Marked as Unread');
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
+      _toastService.showErrorMessage('Failed to mark as unread');
     }
   }
 
   void _deleteConversation(Conversation conversation) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          'Delete Conversation',
-          style: GoogleFonts.quicksand(fontWeight: FontWeight.w600),
-        ),
-        content: Text(
-          'Are you sure you want to delete this conversation?',
-          style: GoogleFonts.quicksand(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: GoogleFonts.quicksand(color: Colors.blue),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // TODO: Implement delete conversation from Firestore
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('Conversation deleted'),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            },
-            child: Text(
-              'Delete',
-              style: GoogleFonts.quicksand(color: Colors.red),
-            ),
-          ),
-        ],
-      ),
-    );
+    _showModernDeleteDialogSingle(conversation);
   }
 }

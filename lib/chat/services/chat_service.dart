@@ -51,118 +51,95 @@ class ChatService extends GetxService {
     return '${ids[0]}_${ids[1]}';
   }
 
-  Future<bool> userExists(String userId) async {
-    try {
-      print('🔍 Checking if user exists: $userId');
-
-      if (userId.isEmpty) return false;
-
-      // Check by SessionId (Firebase UID)
-      final querySnapshot = await _usersCollection
-          .where('SessionId', isEqualTo: userId)
-          .limit(1)
-          .get();
-
-      if (querySnapshot.docs.isNotEmpty) {
-        print('✅ User exists by SessionId');
-        return true;
-      }
-
-      // Check by document ID (numeric ID)
-      final doc = await _usersCollection.doc(userId).get();
-      if (doc.exists) {
-        print('✅ User exists by document ID');
-        return true;
-      }
-
-      print('❌ User does not exist: $userId');
-      return false;
-    } catch (e) {
-      print('❌ Error checking user existence: $e');
-      return false;
-    }
-  }
-
-  // Get or create conversation - FIXED FOR YOUR SCHEMA
+  // Get or create conversation - SIMPLE AND ROBUST
   Future<Conversation> getOrCreateConversation(String otherUserId) async {
-  print('📞 SIMPLE getOrCreateConversation called with: $otherUserId');
+    print('📞 SIMPLE getOrCreateConversation called with: $otherUserId');
 
-  final senderId = currentUserId;
-  if (senderId == null) {
-    print('❌ No sender ID - user not logged in');
-    throw Exception('User not logged in');
-  }
-
-  print('👤 Sender ID: $senderId, Other user ID: $otherUserId');
-  
-  // Generate conversation ID (simple way)
-  final conversationId = '${senderId}_$otherUserId';
-  if (senderId.compareTo(otherUserId) > 0) {
-    final conversationId = '${otherUserId}_$senderId';
-  }
-  
-  print('🎯 Conversation ID: $conversationId');
-
-  try {
-    // Check if conversation exists
-    final doc = await _conversationsCollection.doc(conversationId).get();
-
-    if (doc.exists) {
-      print('✅ Found existing conversation');
-      return Conversation.fromFirestore(doc);
+    final senderId = currentUserId;
+    if (senderId == null) {
+      print('❌ No sender ID - user not logged in');
+      throw Exception('User not logged in');
     }
 
-    print('🔄 Creating new conversation...');
-    
-    // SIMPLE conversation data
-    final conversationData = {
-      'conversationId': conversationId,
-      'user1Id': senderId,
-      'user2Id': otherUserId,
-      'users': [senderId, otherUserId],
-      'lastMessage': 'Say hello! 👋',
-      'lastMessageTime': Timestamp.now(),
-      'lastMessageSenderId': senderId,
-      'unreadCount': {senderId: 0, otherUserId: 0},
-      'isFavorite': {senderId: false, otherUserId: false},
-      'createdAt': Timestamp.now(),
-      'updatedAt': Timestamp.now(),
-    };
+    print('👤 Sender ID: $senderId, Other user ID: $otherUserId');
 
-    // Save to Firestore
-    await _conversationsCollection.doc(conversationId).set(conversationData);
-    print('✅ Conversation created successfully');
+    // Check if same user
+    if (senderId == otherUserId) {
+      throw Exception('Cannot create conversation with yourself');
+    }
 
-    // Create welcome message
-    await _createWelcomeMessage(conversationId, senderId, otherUserId);
+    // Generate conversation ID
+    final conversationId = _generateConversationId(senderId, otherUserId);
+    print('🎯 Conversation ID: $conversationId');
 
-    return Conversation.fromFirestore(
-      await _conversationsCollection.doc(conversationId).get()
-    );
-    
-  } catch (e) {
-    print('❌ Error: $e');
-    // Even on error, return a dummy conversation so navigation continues
-    return Conversation(
-      conversationId: conversationId,
-      user1Id: senderId,
-      user2Id: otherUserId,
-      lastMessage: 'Start chatting...',
-      lastMessageTime: DateTime.now(),
-      lastMessageSenderId: senderId,
-      unreadCount: {senderId: 0, otherUserId: 0},
-      isFavorite: {senderId: false, otherUserId: false},
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
+    try {
+      // Check if conversation exists
+      final doc = await _conversationsCollection.doc(conversationId).get();
+
+      if (doc.exists) {
+        print('✅ Found existing conversation');
+        return Conversation.fromFirestore(doc);
+      }
+
+      print('🔄 Creating new conversation...');
+
+      // SIMPLE conversation data - works even if other user doesn't exist in User collection
+      final conversationData = {
+        'conversationId': conversationId,
+        'user1Id': senderId,
+        'user2Id': otherUserId,
+        'users': [senderId, otherUserId],
+        'lastMessage': 'Say hello! 👋',
+        'lastMessageTime': Timestamp.now(),
+        'lastMessageSenderId': senderId,
+        'unreadCount': {
+          senderId: 0,
+          otherUserId: 0,
+        },
+        'isFavorite': {
+          senderId: false,
+          otherUserId: false,
+        },
+        'createdAt': Timestamp.now(),
+        'updatedAt': Timestamp.now(),
+      };
+
+      // Save to Firestore
+      await _conversationsCollection.doc(conversationId).set(conversationData);
+      print('✅ Conversation created successfully');
+
+      // Create welcome message
+      await _createWelcomeMessage(conversationId, senderId, otherUserId);
+
+      return Conversation.fromFirestore(
+          await _conversationsCollection.doc(conversationId).get()
+      );
+
+    } catch (e) {
+      print('❌ Error creating conversation: $e');
+
+      // Return a fallback conversation so navigation continues
+      return Conversation(
+        conversationId: conversationId,
+        user1Id: senderId,
+        user2Id: otherUserId,
+        lastMessage: 'Start chatting...',
+        lastMessageTime: DateTime.now(),
+        lastMessageSenderId: senderId,
+        unreadCount: {senderId: 0, otherUserId: 0},
+        isFavorite: {senderId: false, otherUserId: false},
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+    }
   }
-}
 
+  // Create welcome message
   Future<void> _createWelcomeMessage(
-    String conversationId,
-    String senderId,
-    String receiverId,
-  ) async {
+      String conversationId,
+      String senderId,
+      String receiverId,
+      ) async {
     try {
       final messageId = 'welcome_${DateTime.now().millisecondsSinceEpoch}';
       final welcomeMessage = ChatMessage(
@@ -170,7 +147,7 @@ class ChatService extends GetxService {
         conversationId: conversationId,
         senderId: senderId,
         receiverId: receiverId,
-        message: 'Hello! Let\'s chat about the room.',
+        message: 'Hello! I\'m interested in your room.',
         type: MessageType.text,
         timestamp: DateTime.now(),
         isRead: false,
@@ -178,77 +155,74 @@ class ChatService extends GetxService {
       );
 
       await _chatsCollection.doc(messageId).set(welcomeMessage.toFirestore());
-      print('Welcome message created in chats collection');
+      print('✅ Welcome message created');
     } catch (e) {
-      print('Could not create welcome message: $e');
+      print('⚠️ Could not create welcome message: $e');
     }
   }
 
-  // Get user by ID - IMPROVED FOR YOUR SCHEMA
-  // Update the getUserById method to handle SessionId properly
+  // Get user by ID - SIMPLIFIED
   Future<ChatUser?> getUserById(String userId) async {
-  try {
-    print('🔍 getUserById called with: $userId');
+    try {
+      print('🔍 getUserById called with: $userId');
 
-    if (userId.isEmpty) {
-      print('❌ User ID is empty');
+      if (userId.isEmpty) {
+        print('❌ User ID is empty');
+        return null;
+      }
+
+      // Try by SessionId (Firebase UID)
+      final querySnapshot = await _usersCollection
+          .where('SessionId', isEqualTo: userId)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        final doc = querySnapshot.docs.first;
+        final data = doc.data() as Map<String, dynamic>;
+        print('✅ User found by SessionId! Name: ${data['Name']}');
+        return ChatUser.fromFirestore(data);
+      }
+
+      // Try by document ID as fallback
+      final doc = await _usersCollection.doc(userId).get();
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        print('✅ User found by document ID! Name: ${data['Name']}');
+        return ChatUser.fromFirestore(data);
+      }
+
+      print('⚠️ User not found in User collection');
+      return null;
+
+    } catch (e) {
+      print('❌ Error in getUserById: $e');
       return null;
     }
+  }
 
-    // Try by SessionId first (Firebase UID)
-    final querySnapshot = await _usersCollection
-        .where('SessionId', isEqualTo: userId)
-        .limit(1)
-        .get();
-
-    if (querySnapshot.docs.isNotEmpty) {
-      final doc = querySnapshot.docs.first;
-      final data = doc.data() as Map<String, dynamic>;
-      print('✅ User found by SessionId! Name: ${data['Name']}');
-      return ChatUser.fromFirestore(data);
-    }
-
-    // Try by document ID as fallback
-    final doc = await _usersCollection.doc(userId).get();
-    if (doc.exists) {
-      final data = doc.data() as Map<String, dynamic>;
-      print('✅ User found by document ID! Name: ${data['Name']}');
-      return ChatUser.fromFirestore(data);
-    }
-
-    print('⚠️ User not found in User collection, creating temporary...');
-    
-    // Create temporary user - ROOM OWNER MIGHT NOT BE IN USER COLLECTION
+  // Create temporary user for room owner
+  ChatUser createTemporaryUser({
+    required String userId,
+    String? name,
+    String? email,
+    String? phone,
+    String? profilePath,
+  }) {
     return ChatUser(
       id: userId,
-      name: 'Room Owner',  // Default name
-      email: '',
-      phone: '',
-      sessionId: userId,   // This is the Firebase UID
-      profilePath: '',
-      createdAt: DateTime.now(),
-      isOnline: false,
-      lastSeen: DateTime.now(),
-    );
-    
-  } catch (e) {
-    print('❌ Error in getUserById: $e');
-    
-    // Return temporary user on error
-    return ChatUser(
-      id: userId,
-      name: 'Room Owner',
-      email: '',
-      phone: '',
+      name: name ?? 'Room Owner',
+      email: email ?? '',
+      phone: phone ?? '',
       sessionId: userId,
-      profilePath: '',
+      profilePath: profilePath ?? '',
       createdAt: DateTime.now(),
       isOnline: false,
       lastSeen: DateTime.now(),
     );
   }
-}
-  // Send text message
+
+  // Send text message with optimistic UI
   Future<void> sendTextMessage({
     required String receiverId,
     required String text,
@@ -288,67 +262,69 @@ class ChatService extends GetxService {
         'updatedAt': Timestamp.now(),
       });
 
-      print('Message sent: $text');
+      print('✅ Message sent: $text');
     } catch (e) {
-      print('Error sending message: $e');
+      print('❌ Error sending message: $e');
       rethrow;
     }
   }
 
-  // Get messages for conversation from chats collection
+  // Get messages for conversation with error handling
   Stream<List<ChatMessage>> getMessages(String conversationId) {
     return _chatsCollection
         .where('conversationId', isEqualTo: conversationId)
         .orderBy('timestamp', descending: true)
         .snapshots()
         .handleError((error) {
-          print('Error in getMessages stream: $error');
-        })
+      print('❌ Error in getMessages stream: $error');
+      return const Stream.empty();
+    })
         .map(
           (snapshot) => snapshot.docs
-              .map((doc) => ChatMessage.fromFirestore(doc))
-              .toList(),
-        );
+          .map((doc) => ChatMessage.fromFirestore(doc))
+          .toList(),
+    );
   }
 
-  // Get user conversations from chat_users collection
+  // Get user conversations with proper filtering
   Stream<List<Conversation>> getUserConversations() {
-  final user = currentUserId;
-  if (user == null) {
-    print('❌ No current user for conversations');
-    return Stream.value([]);
-  }
+    final user = currentUserId;
+    if (user == null) {
+      print('❌ No current user for conversations');
+      return Stream.value([]);
+    }
 
-  print('📥 Loading conversations for user: $user');
+    print('📥 Loading conversations for user: $user');
 
-  return _conversationsCollection
-      .where('users', arrayContains: user)
-      .orderBy('lastMessageTime', descending: true)
-      .snapshots()
-      .handleError((error) {
-        print('⚠️ Stream error: $error');
-        return Stream.value([]);
-      })
-      .map((snapshot) {
-        if (snapshot.docs.isEmpty) {
-          print('📭 No conversations found for user: $user');
-          return [];
+    return _conversationsCollection
+        .where('users', arrayContains: user)
+        .orderBy('lastMessageTime', descending: true)
+        .snapshots()
+        .handleError((error) {
+      print('⚠️ Stream error: $error');
+      return Stream.value([]);
+    })
+        .map((snapshot) {
+      if (snapshot.docs.isEmpty) {
+        print('📭 No conversations found for user: $user');
+        return [];
+      }
+      print('✅ Found ${snapshot.docs.length} conversations');
+
+      return snapshot.docs
+          .map((doc) {
+        try {
+          return Conversation.fromFirestore(doc);
+        } catch (e) {
+          print('⚠️ Error parsing conversation: $e');
+          return null;
         }
-        print('✅ Found ${snapshot.docs.length} conversations');
-        return snapshot.docs
-            .map((doc) {
-              try {
-                return Conversation.fromFirestore(doc);
-              } catch (e) {
-                print('⚠️ Error parsing conversation: $e');
-                return null;
-              }
-            })
-            .where((conv) => conv != null)
-            .cast<Conversation>()
-            .toList();
-      });
-}
+      })
+          .where((conv) => conv != null)
+          .cast<Conversation>()
+          .toList();
+    });
+  }
 
   // Mark messages as read
   Future<void> markMessagesAsRead(String conversationId) async {
@@ -360,9 +336,9 @@ class ChatService extends GetxService {
         'unreadCount.$user': 0,
         'updatedAt': Timestamp.now(),
       });
-      print('Marked messages as read');
+      print('✅ Marked messages as read');
     } catch (e) {
-      print('Error marking as read: $e');
+      print('❌ Error marking as read: $e');
     }
   }
 
@@ -383,14 +359,36 @@ class ChatService extends GetxService {
           '${DateTime.now().millisecondsSinceEpoch}_${senderId.substring(0, 6)}';
       final timestamp = DateTime.now();
 
-      // For now, we'll just send a placeholder text for images
-      // You can implement Supabase upload later
+      // Upload image to Supabase if available, otherwise use placeholder
+      String imageUrl = '[Image]';
+      if (_supabase != null) {
+        try {
+          final bytes = await imageFile.readAsBytes();
+          final fileName = '${DateTime.now().millisecondsSinceEpoch}_${path.basename(imageFile.path)}';
+
+          final response = await _supabase.storage
+              .from('chat-images')
+              .upload(fileName, bytes as File, fileOptions: FileOptions(
+            upsert: true,
+            contentType: lookupMimeType(imageFile.path),
+          ));
+
+          imageUrl = _supabase.storage
+              .from('chat-images')
+              .getPublicUrl(fileName);
+
+          print('✅ Image uploaded to Supabase: $imageUrl');
+        } catch (e) {
+          print('⚠️ Supabase upload failed, using placeholder: $e');
+        }
+      }
+
       final message = ChatMessage(
         messageId: messageId,
         conversationId: conversation.conversationId,
         senderId: senderId,
         receiverId: receiverId,
-        message: '[Image]',
+        message: imageUrl,
         type: MessageType.image,
         timestamp: timestamp,
         isRead: false,
@@ -400,16 +398,16 @@ class ChatService extends GetxService {
       await _chatsCollection.doc(messageId).set(message.toFirestore());
 
       await _conversationsCollection.doc(conversation.conversationId).update({
-        'lastMessage': 'Image',
+        'lastMessage': '📸 Image',
         'lastMessageTime': Timestamp.fromDate(timestamp),
         'lastMessageSenderId': senderId,
         'unreadCount.$receiverId': FieldValue.increment(1),
         'updatedAt': Timestamp.now(),
       });
 
-      print('Image placeholder sent');
+      print('✅ Image message sent');
     } catch (e) {
-      print('Error sending image: $e');
+      print('❌ Error sending image: $e');
       rethrow;
     } finally {
       _isUploading = false;
@@ -418,18 +416,18 @@ class ChatService extends GetxService {
 
   // Toggle favorite status
   Future<void> toggleFavorite(
-    String conversationId,
-    String userId,
-    bool isFavorite,
-  ) async {
+      String conversationId,
+      String userId,
+      bool isFavorite,
+      ) async {
     try {
       await _conversationsCollection.doc(conversationId).update({
         'isFavorite.$userId': isFavorite,
         'updatedAt': Timestamp.now(),
       });
-      print('Toggled favorite: $isFavorite');
+      print('✅ Toggled favorite: $isFavorite');
     } catch (e) {
-      print('Error toggling favorite: $e');
+      print('❌ Error toggling favorite: $e');
       rethrow;
     }
   }
@@ -444,10 +442,93 @@ class ChatService extends GetxService {
         'unreadCount.$user': FieldValue.increment(1),
         'updatedAt': Timestamp.now(),
       });
-      print('Marked conversation as unread');
+      print('✅ Marked conversation as unread');
     } catch (e) {
-      print('Error marking as unread: $e');
+      print('❌ Error marking as unread: $e');
       rethrow;
+    }
+  }
+
+  // Delete conversation
+  Future<void> deleteConversation(String conversationId) async {
+    try {
+      // Delete conversation document
+      await _conversationsCollection.doc(conversationId).delete();
+
+      // Delete all messages in this conversation
+      final messages = await _chatsCollection
+          .where('conversationId', isEqualTo: conversationId)
+          .get();
+
+      final batch = _firestore.batch();
+      for (var doc in messages.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+
+      print('✅ Conversation deleted: $conversationId');
+    } catch (e) {
+      print('❌ Error deleting conversation: $e');
+      rethrow;
+    }
+  }
+
+  // Check if conversation exists
+  Future<bool> conversationExists(String conversationId) async {
+    try {
+      final doc = await _conversationsCollection.doc(conversationId).get();
+      return doc.exists;
+    } catch (e) {
+      print('❌ Error checking conversation: $e');
+      return false;
+    }
+  }
+
+  // Get conversation by ID
+  Future<Conversation?> getConversationById(String conversationId) async {
+    try {
+      final doc = await _conversationsCollection.doc(conversationId).get();
+      if (doc.exists) {
+        return Conversation.fromFirestore(doc);
+      }
+      return null;
+    } catch (e) {
+      print('❌ Error getting conversation: $e');
+      return null;
+    }
+  }
+
+  // Get other user ID from conversation
+  String? getOtherUserId(Conversation conversation) {
+    final currentId = currentUserId;
+    if (currentId == null) return null;
+
+    return conversation.user1Id == currentId
+        ? conversation.user2Id
+        : conversation.user1Id;
+  }
+
+  // Update user online status
+  Future<void> updateUserStatus(bool isOnline) async {
+    final userId = currentUserId;
+    if (userId == null) return;
+
+    try {
+      // Update in User collection
+      final querySnapshot = await _usersCollection
+          .where('SessionId', isEqualTo: userId)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        await querySnapshot.docs.first.reference.update({
+          'isOnline': isOnline,
+          'lastSeen': Timestamp.now(),
+        });
+        print('✅ User status updated: ${isOnline ? 'Online' : 'Offline'}');
+      }
+    } catch (e) {
+      print('❌ Error updating user status: $e');
     }
   }
 
@@ -458,51 +539,78 @@ class ChatService extends GetxService {
 
       final currentId = currentUserId;
       if (currentId == null) {
-        print('No user logged in');
+        print('❌ No user logged in');
         return;
       }
 
-      print('Chat system initialized for user: $currentId');
+      // Mark user as online
+      await updateUserStatus(true);
+
+      print('✅ Chat system initialized for user: $currentId');
     } catch (e) {
-      print('Error initializing chat: $e');
+      print('❌ Error initializing chat: $e');
+    }
+  }
+
+  // Cleanup on logout
+  Future<void> cleanup() async {
+    try {
+      await updateUserStatus(false);
+      print('✅ Chat service cleanup completed');
+    } catch (e) {
+      print('❌ Error during cleanup: $e');
+    }
+  }
+
+  // Debug method for conversation
+  Future<void> debugConversation(String conversationId) async {
+    try {
+      print('\n=== DEBUG CONVERSATION: $conversationId ===');
+
+      final doc = await _conversationsCollection.doc(conversationId).get();
+      if (doc.exists) {
+        print('✅ Conversation exists');
+        print('   Data: ${doc.data()}');
+      } else {
+        print('❌ Conversation not found');
+      }
+
+      final messages = await _chatsCollection
+          .where('conversationId', isEqualTo: conversationId)
+          .get();
+      print('   Messages count: ${messages.docs.length}');
+
+      for (var msg in messages.docs) {
+        print('   - ${msg.data()}');
+      }
+
+      print('=== END DEBUG ===\n');
+    } catch (e) {
+      print('❌ Debug error: $e');
     }
   }
 
   // Check if collections exist
   Future<void> checkCollections() async {
     try {
-      print('Checking Firestore collections...');
+      print('🔍 Checking Firestore collections...');
 
       final usersTest = await _usersCollection.limit(1).get();
-      print(
-        'Users collection: ${usersTest.docs.isNotEmpty ? "Exists" : "Empty"}',
-      );
+      print('   Users collection: ${usersTest.docs.isNotEmpty ? "✅ Exists" : "❌ Empty"}');
 
       final conversationsTest = await _conversationsCollection.limit(1).get();
-      print(
-        'chat_users collection: ${conversationsTest.docs.isNotEmpty ? "Exists" : "Empty"}',
-      );
+      print('   chat_users collection: ${conversationsTest.docs.isNotEmpty ? "✅ Exists" : "❌ Empty"}');
 
       final chatsTest = await _chatsCollection.limit(1).get();
-      print(
-        'chats collection: ${chatsTest.docs.isNotEmpty ? "Exists" : "Empty"}',
-      );
+      print('   chats collection: ${chatsTest.docs.isNotEmpty ? "✅ Exists" : "❌ Empty"}');
 
-      print('Collections check complete');
+      print('✅ Collections check complete');
     } catch (e) {
-      print('Error checking collections: $e');
+      print('❌ Error checking collections: $e');
     }
   }
 
-  // Ensure collections exist
-  Future<void> ensureCollectionsExist() async {
-    try {
-      await checkCollections();
-    } catch (e) {
-      print('Error ensuring collections exist: $e');
-    }
-  }
-
+  // Debug all collections
   Future<void> debugAllCollections() async {
     print('\n=== DEBUGGING ALL COLLECTIONS ===');
 
@@ -513,9 +621,7 @@ class ChatService extends GetxService {
       print('   Found ${userDocs.docs.length} user documents');
       for (var doc in userDocs.docs) {
         final data = doc.data() as Map<String, dynamic>? ?? {};
-        print(
-          '   - ${doc.id}: ${data['Name']} (SessionId: ${data['SessionId']})',
-        );
+        print('   - ${doc.id}: ${data['Name']} (SessionId: ${data['SessionId']})');
       }
 
       // Check chat_users collection
