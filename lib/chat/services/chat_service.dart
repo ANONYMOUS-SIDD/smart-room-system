@@ -342,10 +342,10 @@ class ChatService extends GetxService {
     }
   }
 
-  // Send image message
+  // **UPDATED: Send image message - Now accepts imageUrl instead of File**
   Future<void> sendImageMessage({
     required String receiverId,
-    required File imageFile,
+    required String imageUrl, // CHANGED: From File to String
   }) async {
     final senderId = currentUserId;
     if (senderId == null) return;
@@ -359,36 +359,12 @@ class ChatService extends GetxService {
           '${DateTime.now().millisecondsSinceEpoch}_${senderId.substring(0, 6)}';
       final timestamp = DateTime.now();
 
-      // Upload image to Supabase if available, otherwise use placeholder
-      String imageUrl = '[Image]';
-      if (_supabase != null) {
-        try {
-          final bytes = await imageFile.readAsBytes();
-          final fileName = '${DateTime.now().millisecondsSinceEpoch}_${path.basename(imageFile.path)}';
-
-          final response = await _supabase.storage
-              .from('chat-images')
-              .upload(fileName, bytes as File, fileOptions: FileOptions(
-            upsert: true,
-            contentType: lookupMimeType(imageFile.path),
-          ));
-
-          imageUrl = _supabase.storage
-              .from('chat-images')
-              .getPublicUrl(fileName);
-
-          print('✅ Image uploaded to Supabase: $imageUrl');
-        } catch (e) {
-          print('⚠️ Supabase upload failed, using placeholder: $e');
-        }
-      }
-
       final message = ChatMessage(
         messageId: messageId,
         conversationId: conversation.conversationId,
         senderId: senderId,
         receiverId: receiverId,
-        message: imageUrl,
+        message: imageUrl, // Store the Supabase URL
         type: MessageType.image,
         timestamp: timestamp,
         isRead: false,
@@ -405,7 +381,7 @@ class ChatService extends GetxService {
         'updatedAt': Timestamp.now(),
       });
 
-      print('✅ Image message sent');
+      print('✅ Image message sent with URL: $imageUrl');
     } catch (e) {
       print('❌ Error sending image: $e');
       rethrow;

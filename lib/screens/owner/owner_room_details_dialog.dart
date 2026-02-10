@@ -111,9 +111,10 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     super.initState();
     // Add debug print
     print('📱 OwnerRoomDetailsDialog created');
-    print('   User ID from widget: ${widget.userId}');
+    print('   Booking User ID: ${widget.userId}');
     print('   Room ID: ${widget.roomDocumentId}');
     print('   Booking ID: ${widget.bookingId}');
+    print('   Room Owner ID: ${widget.room['sessionId']}');
     _controller = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -159,72 +160,72 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   }
 
   Future<void> _fetchUserData() async {
-  try {
-    if (!widget.shouldShowUserInfo) {
-      setState(() {
-        _isLoadingUser = false;
-      });
-      return;
-    }
-
-    final firestore = FirebaseFirestore.instance;
-    
-    // **CRITICAL: Get room owner ID from room data, not widget.userId**
-    final roomOwnerId = widget.room['sessionId']?.toString().trim() ?? '';
-    
-    print('🔍 Fetching room owner data for sessionId: $roomOwnerId');
-
-    if (roomOwnerId.isNotEmpty) {
-      // Query by SessionId (Firebase UID)
-      final userQuery = await firestore.collection('User')
-          .where('SessionId', isEqualTo: roomOwnerId)
-          .limit(1)
-          .get();
-
-      if (userQuery.docs.isNotEmpty) {
-        final doc = userQuery.docs.first;
-        final data = doc.data() as Map<String, dynamic>;
-        print('✅ Found room owner: ${data['Name']}');
-        
+    try {
+      if (!widget.shouldShowUserInfo) {
         setState(() {
-          _userData = {
-            'name': data['Name']?.toString() ?? 'Room Owner',
-            'email': data['Email']?.toString() ?? '',
-            'phone': data['Phone']?.toString() ?? '',
-            'profilePath': data['Path']?.toString() ?? '',
-            'sessionId': data['SessionId']?.toString() ?? roomOwnerId,
-          };
           _isLoadingUser = false;
         });
         return;
       }
-    }
 
-    // Fallback
-    setState(() {
-      _userData = {
-        'name': 'Room Owner',
-        'email': 'Not available',
-        'phone': 'Not available',
-        'profilePath': '',
-        'sessionId': roomOwnerId,
-      };
-      _isLoadingUser = false;
-    });
-  } catch (e) {
-    print("❌ Error fetching user data: $e");
-    setState(() {
-      _userData = {
-        'name': 'Room Owner',
-        'email': 'Not available',
-        'phone': 'Not available',
-        'profilePath': '',
-        'sessionId': widget.room['sessionId']?.toString() ?? '',
-      };
-      _isLoadingUser = false;
-    });
+      final firestore = FirebaseFirestore.instance;
+
+      // **FIXED: Get booking user ID (the user who made the booking request)**
+      final bookingUserId = widget.userId.trim();
+
+      print('🔍 Fetching booking user data for userId: $bookingUserId');
+
+      if (bookingUserId.isNotEmpty) {
+        // Query by booking user's SessionId
+        final userQuery = await firestore.collection('User')
+            .where('SessionId', isEqualTo: bookingUserId)
+            .limit(1)
+            .get();
+
+        if (userQuery.docs.isNotEmpty) {
+          final doc = userQuery.docs.first;
+          final data = doc.data() as Map<String, dynamic>;
+          print('✅ Found booking user: ${data['Name']}');
+
+          setState(() {
+            _userData = {
+              'name': data['Name']?.toString() ?? 'Booking User',
+              'email': data['Email']?.toString() ?? '',
+              'phone': data['Phone']?.toString() ?? '',
+              'profilePath': data['Path']?.toString() ?? '',
+              'sessionId': data['SessionId']?.toString() ?? bookingUserId,
+            };
+            _isLoadingUser = false;
+          });
+          return;
+        }
+      }
+
+      // Fallback
+      setState(() {
+        _userData = {
+          'name': 'Booking User',
+          'email': 'Not available',
+          'phone': 'Not available',
+          'profilePath': '',
+          'sessionId': bookingUserId,
+        };
+        _isLoadingUser = false;
+      });
+    } catch (e) {
+      print("❌ Error fetching user data: $e");
+      setState(() {
+        _userData = {
+          'name': 'Booking User',
+          'email': 'Not available',
+          'phone': 'Not available',
+          'profilePath': '',
+          'sessionId': widget.userId,
+        };
+        _isLoadingUser = false;
+      });
+    }
   }
-}
 
   Future<void> _getLocationAndDrawPolyline() async {
     try {
@@ -471,10 +472,10 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   }
 
   Widget _buildContent(
-    ScrollController scrollController,
-    bool isSmallScreen,
-    bool isTablet,
-  ) {
+      ScrollController scrollController,
+      bool isSmallScreen,
+      bool isTablet,
+      ) {
     final room = widget.room;
     final images = _images;
 
@@ -916,9 +917,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                                 color: hasBathroom
                                     ? const Color(0xFFE3F2FD)
                                     : // Light blue for attached
-                                      const Color(
-                                        0xFFF5F5F5,
-                                      ), // Light grey for shared
+                                const Color(
+                                  0xFFF5F5F5,
+                                ), // Light grey for shared
                                 borderRadius: BorderRadius.circular(
                                   isTablet ? 18 : 16,
                                 ),
@@ -935,9 +936,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                                   color: hasBathroom
                                       ? const Color(0xFF2196F3)
                                       : // Blue for attached
-                                        const Color(
-                                          0xFF757575,
-                                        ), // Grey for shared
+                                  const Color(
+                                    0xFF757575,
+                                  ), // Grey for shared
                                 ),
                               ),
                             ),
@@ -1159,39 +1160,39 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
               child: ClipOval(
                 child: userPhoto != null && userPhoto.isNotEmpty
                     ? CachedNetworkImage(
-                        imageUrl: userPhoto,
-                        fit: BoxFit.cover,
-                        placeholder: (context, url) => Container(
-                          color: const Color(0xFFF1F5F9),
-                          child: Center(
-                            child: Icon(
-                              Icons.person_rounded,
-                              size: isTablet ? 20 : 16,
-                              color: const Color(0xFF94A3B8),
-                            ),
-                          ),
-                        ),
-                        errorWidget: (context, url, error) => Container(
-                          color: const Color(0xFFF1F5F9),
-                          child: Center(
-                            child: Icon(
-                              Icons.person_rounded,
-                              size: isTablet ? 20 : 16,
-                              color: const Color(0xFF94A3B8),
-                            ),
-                          ),
-                        ),
-                      )
-                    : Container(
-                        color: const Color(0xFFF1F5F9),
-                        child: Center(
-                          child: Icon(
-                            Icons.person_rounded,
-                            size: isTablet ? 20 : 16,
-                            color: const Color(0xFF94A3B8),
-                          ),
-                        ),
+                  imageUrl: userPhoto,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    color: const Color(0xFFF1F5F9),
+                    child: Center(
+                      child: Icon(
+                        Icons.person_rounded,
+                        size: isTablet ? 20 : 16,
+                        color: const Color(0xFF94A3B8),
                       ),
+                    ),
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    color: const Color(0xFFF1F5F9),
+                    child: Center(
+                      child: Icon(
+                        Icons.person_rounded,
+                        size: isTablet ? 20 : 16,
+                        color: const Color(0xFF94A3B8),
+                      ),
+                    ),
+                  ),
+                )
+                    : Container(
+                  color: const Color(0xFFF1F5F9),
+                  child: Center(
+                    child: Icon(
+                      Icons.person_rounded,
+                      size: isTablet ? 20 : 16,
+                      color: const Color(0xFF94A3B8),
+                    ),
+                  ),
+                ),
               ),
             ),
             SizedBox(width: isTablet ? 14 : (isSmallScreen ? 10 : 12)),
@@ -1257,7 +1258,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
               ),
             ),
 
-            // **FIXED CHAT BUTTON - WORKING VERSION**
+            // **FIXED CHAT BUTTON - Now chats with booking user**
             _buildChatButton(isSmallScreen, isTablet),
           ],
         ),
@@ -1265,7 +1266,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     );
   }
 
-  // **NEW: SEPARATE CHAT BUTTON WIDGET**
+  // **UPDATED: SEPARATE CHAT BUTTON WIDGET - Now chats with booking user**
   Widget _buildChatButton(bool isSmallScreen, bool isTablet) {
     return Container(
       width: isTablet ? 36 : (isSmallScreen ? 30 : 32),
@@ -1286,7 +1287,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         borderRadius: BorderRadius.circular(isTablet ? 10 : 8),
         child: InkWell(
           borderRadius: BorderRadius.circular(isTablet ? 10 : 8),
-          onTap: _openChatDirect, // Make sure this calls the method above
+          onTap: _openChatDirect,
           child: Center(
             child: Icon(
               Icons.messenger_rounded,
@@ -1299,80 +1300,81 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     );
   }
 
-  // **NEW: SEPARATE METHOD FOR CHAT BUTTON HANDLING**
- void _openChatDirect() {
-  print('💬 CHAT BUTTON CLICKED');
-  
-  // Get room owner ID
-  final roomOwnerId = widget.room['sessionId']?.toString().trim() ?? '';
-  print('🏠 Room owner ID: $roomOwnerId');
-  
-  // Get my ID (current user)
-  final myId = FirebaseAuth.instance.currentUser?.uid ?? '';
-  if (myId.isEmpty) {
-    print('❌ I need to login first');
-    _toastService.showErrorMessage('Please login to chat');
-    return;
-  }
-  
-  print('👤 My ID: $myId');
-  
-  // Sort IDs for conversation ID
-  final List<String> ids = [myId, roomOwnerId]..sort();
-  final conversationId = '${ids[0]}_${ids[1]}';
-  print('💬 Creating conversation: $conversationId');
-  
-  // **SIMPLE: Just create it in Firestore**
-  _createChatInFirestore(conversationId, myId, roomOwnerId);
-  
-  // Close the dialog
-  Navigator.pop(context);
-}
+  // **UPDATED: SEPARATE METHOD FOR CHAT BUTTON HANDLING - Now chats with booking user**
+  void _openChatDirect() {
+    print('💬 CHAT BUTTON CLICKED');
 
-void _createChatInFirestore(String convId, String myId, String ownerId) async {
-  try {
-    final firestore = FirebaseFirestore.instance;
-    
-    // 1. Create conversation
-    await firestore.collection('chat_users').doc(convId).set({
-      'conversationId': convId,
-      'user1Id': myId,
-      'user2Id': ownerId,
-      'users': [myId, ownerId],
-      'lastMessage': 'Hello! Interested in your room.',
-      'lastMessageTime': Timestamp.now(),
-      'lastMessageSenderId': myId,
-      'unreadCount': {myId: 0, ownerId: 1},
-      'isFavorite': {myId: false, ownerId: false},
-      'createdAt': Timestamp.now(),
-      'updatedAt': Timestamp.now(),
-    });
-    
-    print('✅ Conversation created');
-    
-    // 2. Create first message
-    final messageId = 'msg_${DateTime.now().millisecondsSinceEpoch}';
-    await firestore.collection('chats').doc(messageId).set({
-      'messageId': messageId,
-      'conversationId': convId,
-      'senderId': myId,
-      'receiverId': ownerId,
-      'message': 'Hello! I\'m interested in your room.',
-      'type': 'text',
-      'timestamp': Timestamp.now(),
-      'isRead': false,
-      'isDeleted': false,
-    });
-    
-    print('✅ Message created');
-    
-    // Show success
-    _toastService.showSuccessMessage('Room owner added to chat list!');
-    
-  } catch (e) {
-    print('⚠️ Error (but continuing): $e');
+    // **FIXED: Get booking user ID (the user who requested the booking)**
+    final bookingUserId = widget.userId.trim();
+    print('👤 Booking user ID: $bookingUserId');
+
+    // Get my ID (current user - room owner)
+    final myId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (myId.isEmpty) {
+      print('❌ I need to login first');
+      _toastService.showErrorMessage('Please login to chat');
+      return;
+    }
+
+    print('🏠 My ID (Room Owner): $myId');
+
+    // Sort IDs for conversation ID
+    final List<String> ids = [myId, bookingUserId]..sort();
+    final conversationId = '${ids[0]}_${ids[1]}';
+    print('💬 Creating conversation: $conversationId');
+
+    // Create chat in Firestore
+    _createChatInFirestore(conversationId, myId, bookingUserId);
+
+    // Close the dialog
+    Navigator.pop(context);
   }
-}
+
+  void _createChatInFirestore(String convId, String myId, String bookingUserId) async {
+    try {
+      final firestore = FirebaseFirestore.instance;
+
+      // 1. Create conversation
+      await firestore.collection('chat_users').doc(convId).set({
+        'conversationId': convId,
+        'user1Id': myId,
+        'user2Id': bookingUserId,
+        'users': [myId, bookingUserId],
+        'lastMessage': 'Hello! I\'m interested in your room booking.',
+        'lastMessageTime': Timestamp.now(),
+        'lastMessageSenderId': myId,
+        'unreadCount': {myId: 0, bookingUserId: 1},
+        'isFavorite': {myId: false, bookingUserId: false},
+        'createdAt': Timestamp.now(),
+        'updatedAt': Timestamp.now(),
+      });
+
+      print('✅ Conversation created with booking user');
+
+      // 2. Create first message
+      final messageId = 'msg_${DateTime.now().millisecondsSinceEpoch}';
+      await firestore.collection('chats').doc(messageId).set({
+        'messageId': messageId,
+        'conversationId': convId,
+        'senderId': myId,
+        'receiverId': bookingUserId,
+        'message': 'Hello! I\'m the room owner. Let\'s discuss your booking.',
+        'type': 'text',
+        'timestamp': Timestamp.now(),
+        'isRead': false,
+        'isDeleted': false,
+      });
+
+      print('✅ Message created');
+
+      // Show success
+      _toastService.showSuccessMessage('Booking user added to chat list!');
+
+    } catch (e) {
+      print('⚠️ Error (but continuing): $e');
+    }
+  }
+
   Widget _buildUserInfoShimmer(bool isSmallScreen, bool isTablet) {
     return Padding(
       padding: EdgeInsets.symmetric(
@@ -1501,10 +1503,10 @@ void _createChatInFirestore(String convId, String myId, String ownerId) async {
   }
 
   Widget _buildMainImageSection(
-    List<String> images,
-    bool isSmallScreen,
-    bool isTablet,
-  ) {
+      List<String> images,
+      bool isSmallScreen,
+      bool isTablet,
+      ) {
     if (images.isEmpty) {
       return Padding(
         padding: EdgeInsets.symmetric(
@@ -1652,10 +1654,10 @@ void _createChatInFirestore(String convId, String myId, String ownerId) async {
   }
 
   Widget _buildThumbnailsSection(
-    List<String> images,
-    bool isSmallScreen,
-    bool isTablet,
-  ) {
+      List<String> images,
+      bool isSmallScreen,
+      bool isTablet,
+      ) {
     final itemWidth = isTablet ? 80.0 : (isSmallScreen ? 60.0 : 70.0);
     final itemHeight = isTablet ? 80.0 : (isSmallScreen ? 60.0 : 70.0);
     final borderRadius = isTablet ? 14.0 : (isSmallScreen ? 10.0 : 12.0);
@@ -1671,34 +1673,34 @@ void _createChatInFirestore(String convId, String myId, String ownerId) async {
         child: Center(
           child: images.length <= 3
               ? _buildCenteredThumbnails(
-                  images,
-                  itemWidth,
-                  itemHeight,
-                  borderRadius,
-                  isSmallScreen,
-                  isTablet,
-                )
+            images,
+            itemWidth,
+            itemHeight,
+            borderRadius,
+            isSmallScreen,
+            isTablet,
+          )
               : _buildScrollableThumbnails(
-                  images,
-                  itemWidth,
-                  itemHeight,
-                  borderRadius,
-                  isSmallScreen,
-                  isTablet,
-                ),
+            images,
+            itemWidth,
+            itemHeight,
+            borderRadius,
+            isSmallScreen,
+            isTablet,
+          ),
         ),
       ),
     );
   }
 
   Widget _buildCenteredThumbnails(
-    List<String> images,
-    double itemWidth,
-    double itemHeight,
-    double borderRadius,
-    bool isSmallScreen,
-    bool isTablet,
-  ) {
+      List<String> images,
+      double itemWidth,
+      double itemHeight,
+      double borderRadius,
+      bool isSmallScreen,
+      bool isTablet,
+      ) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: images.asMap().entries.map((entry) {
@@ -1754,13 +1756,13 @@ void _createChatInFirestore(String convId, String myId, String ownerId) async {
   }
 
   Widget _buildScrollableThumbnails(
-    List<String> images,
-    double itemWidth,
-    double itemHeight,
-    double borderRadius,
-    bool isSmallScreen,
-    bool isTablet,
-  ) {
+      List<String> images,
+      double itemWidth,
+      double itemHeight,
+      double borderRadius,
+      bool isSmallScreen,
+      bool isTablet,
+      ) {
     return ListView.builder(
       scrollDirection: Axis.horizontal,
       itemCount: images.length,
@@ -1916,15 +1918,15 @@ void _createChatInFirestore(String convId, String myId, String ownerId) async {
                   child: Center(
                     child: images.length <= 3
                         ? _buildCenteredBottomThumbnails(
-                            images,
-                            isSmallScreen,
-                            isTablet,
-                          )
+                      images,
+                      isSmallScreen,
+                      isTablet,
+                    )
                         : _buildScrollableBottomThumbnails(
-                            images,
-                            isSmallScreen,
-                            isTablet,
-                          ),
+                      images,
+                      isSmallScreen,
+                      isTablet,
+                    ),
                   ),
                 ),
               ),
@@ -1936,10 +1938,10 @@ void _createChatInFirestore(String convId, String myId, String ownerId) async {
   }
 
   Widget _buildCenteredBottomThumbnails(
-    List<String> images,
-    bool isSmallScreen,
-    bool isTablet,
-  ) {
+      List<String> images,
+      bool isSmallScreen,
+      bool isTablet,
+      ) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: images.asMap().entries.map((entry) {
@@ -1984,10 +1986,10 @@ void _createChatInFirestore(String convId, String myId, String ownerId) async {
   }
 
   Widget _buildScrollableBottomThumbnails(
-    List<String> images,
-    bool isSmallScreen,
-    bool isTablet,
-  ) {
+      List<String> images,
+      bool isSmallScreen,
+      bool isTablet,
+      ) {
     return ListView.builder(
       scrollDirection: Axis.horizontal,
       itemCount: images.length,
@@ -2030,13 +2032,13 @@ void _createChatInFirestore(String convId, String myId, String ownerId) async {
   }
 
   Widget _buildCompactSpecItem(
-    IconData icon,
-    String title,
-    String value,
-    Color color,
-    bool isSmallScreen,
-    bool isTablet,
-  ) {
+      IconData icon,
+      String title,
+      String value,
+      Color color,
+      bool isSmallScreen,
+      bool isTablet,
+      ) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -2068,12 +2070,12 @@ void _createChatInFirestore(String convId, String myId, String ownerId) async {
   }
 
   Widget _buildAmenityWindow(
-    IconData icon,
-    String label,
-    Color color,
-    bool isSmallScreen,
-    bool isTablet,
-  ) {
+      IconData icon,
+      String label,
+      Color color,
+      bool isSmallScreen,
+      bool isTablet,
+      ) {
     final size = isTablet ? 60.0 : (isSmallScreen ? 40.0 : 45.0);
     return Column(
       children: [
@@ -2121,7 +2123,7 @@ void _createChatInFirestore(String convId, String myId, String ownerId) async {
         ? double.tryParse(longitude.toString())
         : null;
     final destination =
-        hasCoordinates && destinationLat != null && destinationLng != null
+    hasCoordinates && destinationLat != null && destinationLng != null
         ? LatLng(destinationLat, destinationLng)
         : null;
 

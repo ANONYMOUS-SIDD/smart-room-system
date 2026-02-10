@@ -8,6 +8,7 @@ import 'dart:async';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'; // Add Supabase import
 
 import '../models/chat_user.dart';
 import '../models/chat_message.dart';
@@ -38,6 +39,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final ImagePicker _imagePicker = ImagePicker();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FocusNode _focusNode = FocusNode();
+  final SupabaseClient _supabase = Supabase.instance.client; // Supabase client
 
   bool _isUploading = false;
   bool _isTyping = false;
@@ -284,19 +286,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
 
     if (pickedFile != null) {
-      setState(() => _isUploading = true);
-
-      try {
-        await _chatService.sendImageMessage(
-          receiverId: _otherUser.id,
-          imageFile: File(pickedFile.path),
-        );
-        print('✅ Image sent successfully');
-      } catch (e) {
-        _showErrorSnackbar('Failed to send image: $e');
-      } finally {
-        setState(() => _isUploading = false);
-      }
+      await _uploadAndSendImage(File(pickedFile.path));
     }
   }
 
@@ -307,19 +297,55 @@ class _ChatScreenState extends State<ChatScreen> {
     );
 
     if (pickedFile != null) {
-      setState(() => _isUploading = true);
+      await _uploadAndSendImage(File(pickedFile.path));
+    }
+  }
 
-      try {
-        await _chatService.sendImageMessage(
-          receiverId: _otherUser.id,
-          imageFile: File(pickedFile.path),
-        );
-        print('✅ Photo sent successfully');
-      } catch (e) {
-        _showErrorSnackbar('Failed to send image: $e');
-      } finally {
-        setState(() => _isUploading = false);
-      }
+  Future<void> _uploadAndSendImage(File imageFile) async {
+    setState(() => _isUploading = true);
+
+    try {
+      print('📤 Starting image upload to Supabase...');
+
+      // Generate unique filename
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final currentUserId = _chatService.currentUserId ?? 'unknown';
+      final fileName = 'chat_${currentUserId}_$timestamp.jpg';
+      final filePath = 'chat_images/$fileName';
+
+      print('📁 Uploading file: $fileName to bucket: chat_images');
+
+      // Upload to Supabase Storage
+      final fileBytes = await imageFile.readAsBytes();
+      final uploadResponse = await _supabase.storage
+          .from('chat_images')
+          .uploadBinary(filePath, fileBytes, fileOptions: FileOptions(
+        upsert: true,
+        contentType: 'image/jpeg',
+      ));
+
+      print('✅ Image uploaded to Supabase: $uploadResponse');
+
+      // Get public URL
+      final imageUrl = _supabase.storage
+          .from('chat_images')
+          .getPublicUrl(filePath);
+
+      print('🔗 Image URL: $imageUrl');
+
+      // Send image URL to Firebase
+      await _chatService.sendImageMessage(
+        receiverId: _otherUser.id,
+        imageUrl: imageUrl, // Pass the Supabase URL
+      );
+
+      print('✅ Image sent successfully via Firebase');
+
+    } catch (e) {
+      print('❌ Error uploading/sending image: $e');
+      _showErrorSnackbar('Failed to send image: $e');
+    } finally {
+      setState(() => _isUploading = false);
     }
   }
 
@@ -837,6 +863,7 @@ class _ChatScreenState extends State<ChatScreen> {
             borderRadius: BorderRadius.circular(16),
             child: Stack(
               children: [
+                // Use CachedNetworkImage for Supabase URLs
                 CachedNetworkImage(
                   imageUrl: message.message,
                   fit: BoxFit.cover,
