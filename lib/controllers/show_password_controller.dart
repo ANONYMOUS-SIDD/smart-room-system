@@ -1,13 +1,12 @@
 import 'package:get/get.dart';
 
-/// Controller For Managing Password Visibility States
 class ShowPasswordController extends GetxController {
   var isPasswordVisible = true.obs;
   var isConfirmPasswordVisible = true.obs;
 
-  /// Toggle Main Password Visibility
+  // Toggles Visibility Of Main Password Field
   void togglePasswordVisibility() => isPasswordVisible.value = !isPasswordVisible.value;
 
-  /// Toggle Confirm Password Visibility
+  // Toggles Visibility Of Confirm Password Field
   void toggleConfirmPasswordVisibility() => isConfirmPasswordVisible.value = !isConfirmPasswordVisible.value;
 }

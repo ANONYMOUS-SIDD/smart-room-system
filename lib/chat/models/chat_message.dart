@@ -25,6 +25,7 @@ class ChatMessage {
     required this.isDeleted,
   });
 
+  // Converts Chat Message To Firestore Map Format
   Map<String, dynamic> toFirestore() {
     return {
       'messageId': messageId,
@@ -39,10 +40,11 @@ class ChatMessage {
     };
   }
 
+  // Creates Chat Message From Firestore Document
   factory ChatMessage.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
 
-    // Parse MessageType from string
+    // Converts String To MessageType Enum
     MessageType parseMessageType(String typeString) {
       switch (typeString.toLowerCase()) {
         case 'image':
@@ -71,7 +73,7 @@ class ChatMessage {
     );
   }
 
-  // Helper method to convert to map (optional, for other uses)
+  // Converts Chat Message To Regular Map For Local Use
   Map<String, dynamic> toMap() {
     return {
       'messageId': messageId,
@@ -86,7 +88,7 @@ class ChatMessage {
     };
   }
 
-  // Copy with method for easy updates
+  // Creates New Instance With Updated Values
   ChatMessage copyWith({
     String? messageId,
     String? conversationId,

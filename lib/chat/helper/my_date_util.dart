@@ -2,35 +2,19 @@ import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
 
 class MyDateUtil {
-  // for getting formatted time from milliSecondsSinceEpochs String
-  static String getFormattedTime(
-      {required BuildContext context, required String time}) {
+  // Formats Time From Milliseconds Since Epoch To Human Readable Time
+  static String getFormattedTime({
+    required BuildContext context,
+    required String time,
+  }) {
     final date = DateTime.fromMillisecondsSinceEpoch(int.parse(time));
     return TimeOfDay.fromDateTime(date).format(context);
   }
 
-  // // for getting formatted time for sent & read
-  // static String getMessageTime(
-  //     {required BuildContext context, required String time}) {
-
-  //   final DateTime sent = DateTime.fromMillisecondsSinceEpoch(int.parse(time));
-  //   final DateTime now = DateTime.now();
-
-  //   final formattedTime = TimeOfDay.fromDateTime(sent).format(context);
-  //   if (now.day == sent.day &&
-  //       now.month == sent.month &&
-  //       now.year == sent.year) {
-  //     return formattedTime;
-  //   }
-
-  //   return now.year == sent.year
-  //       ? '$formattedTime - ${sent.day} ${_getMonth(sent)}'
-  //       : '$formattedTime - ${sent.day} ${_getMonth(sent)} ${sent.year}';
-  // }
-
-  // for getting formatted time for sent & read
-  // [Bux Fix] Avoid bug due to context not mounted when keyboard is open in chat & bottom sheet opens
-  static String getMessageTime({required String time}) {
+  // Formats Message Time With Date If Not Today
+  static String getMessageTime({
+    required String time,
+  }) {
     final DateTime sent = DateTime.fromMillisecondsSinceEpoch(int.parse(time));
     final DateTime now = DateTime.now();
 
@@ -49,11 +33,12 @@ class MyDateUtil {
     return '$formattedTime - $formattedDate';
   }
 
-  //get last message time (used in chat user card)
-  static String getLastMessageTime(
-      {required BuildContext context,
-      required String time,
-      bool showYear = false}) {
+  // Gets Last Message Time For Chat User Card Display
+  static String getLastMessageTime({
+    required BuildContext context,
+    required String time,
+    bool showYear = false,
+  }) {
     final DateTime sent = DateTime.fromMillisecondsSinceEpoch(int.parse(time));
     final DateTime now = DateTime.now();
 
@@ -68,13 +53,14 @@ class MyDateUtil {
         : '${sent.day} ${_getMonth(sent)}';
   }
 
-  //get formatted last active time of user in chat screen
-  static String getLastActiveTime(
-      {required BuildContext context, required String lastActive}) {
+  // Formats Last Active Time Of User In Chat Screen
+  static String getLastActiveTime({
+    required BuildContext context,
+    required String lastActive,
+  }) {
     final int i = int.tryParse(lastActive) ?? -1;
 
-    //if time is not available then return below statement
-    if (i == -1) return 'Last seen not available';
+    if (i == -1) return 'Last Seen Not Available';
 
     DateTime time = DateTime.fromMillisecondsSinceEpoch(i);
     DateTime now = DateTime.now();
@@ -82,20 +68,20 @@ class MyDateUtil {
     String formattedTime = TimeOfDay.fromDateTime(time).format(context);
     if (time.day == now.day &&
         time.month == now.month &&
-        time.year == time.year) {
-      return 'Last seen today at $formattedTime';
+        time.year == now.year) {
+      return 'Last Seen Today At $formattedTime';
     }
 
     if ((now.difference(time).inHours / 24).round() == 1) {
-      return 'Last seen yesterday at $formattedTime';
+      return 'Last Seen Yesterday At $formattedTime';
     }
 
     String month = _getMonth(time);
 
-    return 'Last seen on ${time.day} $month on $formattedTime';
+    return 'Last Seen On ${time.day} $month At $formattedTime';
   }
 
-  // get month name from month no. or index
+  // Converts Month Number To Month Name Abbreviation
   static String _getMonth(DateTime date) {
     switch (date.month) {
       case 1:

@@ -1,7 +1,8 @@
-// Owner Section Dialog For Posting Rooms. Handles Image Uploads To Supabase, Persists Room Data To Firestore, Uses FirebaseAuth SessionId, And Provides An Ios-Inspired Quicksand UI.
+// Owner Section Dialog For Posting Rooms
+// Handles Image Uploads To Supabase, Persists Room Data To Firestore,
+// Uses FirebaseAuth SessionId, And Provides An iOS-Inspired Quicksand UI
 import 'dart:io';
 import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
@@ -9,7 +10,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'location_picker_dialog.dart'; // Import the new location picker dialog
+import 'location_picker_dialog.dart';
 
 class OwnerSectionDialog extends StatefulWidget {
   const OwnerSectionDialog({super.key});
@@ -19,32 +20,34 @@ class OwnerSectionDialog extends StatefulWidget {
 }
 
 class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _roomNameController = TextEditingController();
-  final _internetController = TextEditingController();
-  final _windowsController = TextEditingController();
-  final _sizeController = TextEditingController();
-  final _locationController = TextEditingController();
-  final _priceController = TextEditingController();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _roomNameController = TextEditingController();
+  final TextEditingController _internetController = TextEditingController();
+  final TextEditingController _windowsController = TextEditingController();
+  final TextEditingController _sizeController = TextEditingController();
+  final TextEditingController _locationController = TextEditingController();
+  final TextEditingController _priceController = TextEditingController();
 
+  // Amenity Selection Variables
   String _selectedWater = "Available";
   String _selectedSunlight = "Good";
   String _selectedBathroom = "Yes";
 
+  // Image Management Variables
   List<File> _selectedImages = [];
   String? _imageError;
   bool _isUploading = false;
 
-  // Location data from picker
+  // Location Data Variables
   String _selectedLocation = "";
   double? _selectedLatitude;
   double? _selectedLongitude;
   String _walkTime = "0 min";
   String _distance = "0.00 km";
 
-  final ImagePicker _picker = ImagePicker();
+  final ImagePicker _imagePicker = ImagePicker();
 
-  // Function to open location picker dialog
+  // Open Location Picker Dialog
   void _openLocationPicker() async {
     final locationData = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -59,7 +62,6 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
         _distance = locationData['distance'] ?? "0.00 km";
         _walkTime = locationData['walkTime'] ?? "0 min";
 
-        // Update the location controller with selected address
         _locationController.text = _selectedLocation;
       });
     }
@@ -76,24 +78,23 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
     super.dispose();
   }
 
+  // Select Multiple Images From Gallery
   Future<void> _uploadImages() async {
-    final List<XFile>? images = await _picker.pickMultiImage(imageQuality: 75);
+    final List<XFile>? images = await _imagePicker.pickMultiImage(imageQuality: 75);
     if (images == null) return;
 
     if (_selectedImages.length + images.length > 6) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Maximum 6 images allowed",
-              style: GoogleFonts.quicksand(fontWeight: FontWeight.w700, fontSize: 13),
-            ),
-            backgroundColor: Colors.red.shade400,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Maximum 6 Images Allowed",
+            style: GoogleFonts.quicksand(fontWeight: FontWeight.w700, fontSize: 13),
           ),
-        );
-      }
+          backgroundColor: Colors.red.shade400,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
       return;
     }
 
@@ -103,6 +104,7 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
     });
   }
 
+  // Submit Form Data To Firestore And Supabase
   Future<void> _submitForm() async {
     final formValid = _formKey.currentState?.validate() ?? false;
     if (!formValid) return;
@@ -115,19 +117,17 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
     }
 
     if (_selectedLocation.isEmpty || _selectedLatitude == null || _selectedLongitude == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Please select a location on map",
-              style: GoogleFonts.quicksand(fontWeight: FontWeight.w700, fontSize: 13),
-            ),
-            backgroundColor: Colors.red.shade400,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Please Select A Location On Map",
+            style: GoogleFonts.quicksand(fontWeight: FontWeight.w700, fontSize: 13),
           ),
-        );
-      }
+          backgroundColor: Colors.red.shade400,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
       return;
     }
 
@@ -140,12 +140,12 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
     final user = FirebaseAuth.instance.currentUser;
     final sessionId = user?.uid ?? 'anonymous_${DateTime.now().millisecondsSinceEpoch}';
 
-    List<String?> uploadedUrls = List<String?>.filled(6, null);
+    final List<String?> uploadedUrls = List<String?>.filled(6, null);
 
     try {
       for (var i = 0; i < _selectedImages.length && i < 6; i++) {
         final File img = _selectedImages[i];
-        final fileName = 'room_images/${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(10000)}.jpg';
+        final String fileName = 'room_images/${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(10000)}.jpg';
         final bytes = await img.readAsBytes();
 
         await supabase.storage.from('room_images').uploadBinary(
@@ -154,12 +154,12 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
           fileOptions: const FileOptions(cacheControl: '3600'),
         );
 
-        final publicUrl = supabase.storage.from('room_images').getPublicUrl(fileName);
+        final String publicUrl = supabase.storage.from('room_images').getPublicUrl(fileName);
         uploadedUrls[i] = publicUrl;
       }
 
       final int? price = int.tryParse(_priceController.text.trim());
-      final int aiPrice = price != null ? (price * 11 ~/ 10) : (100);
+      final int aiPrice = price != null ? (price * 11 ~/ 10) : 100;
 
       final Map<String, dynamic> roomDoc = {
         'roomName': _roomNameController.text.trim(),
@@ -179,7 +179,7 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
         'images': uploadedUrls.where((e) => e != null).toList(),
         'createdAt': DateTime.now(),
         'sessionId': sessionId,
-        'status':"Available"
+        'status': "Available"
       };
 
       await firestore.collection('room').add(roomDoc);
@@ -188,28 +188,27 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
         _isUploading = false;
       });
 
-      if (mounted) _showSuccessDialog();
-    } catch (e, st) {
+      _showSuccessDialog();
+    } catch (e) {
       setState(() {
         _isUploading = false;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Error: $e",
-              style: GoogleFonts.quicksand(fontWeight: FontWeight.w700, fontSize: 13),
-            ),
-            backgroundColor: Colors.red.shade400,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Error Uploading Room",
+            style: GoogleFonts.quicksand(fontWeight: FontWeight.w700, fontSize: 13),
           ),
-        );
-      }
-      debugPrint('Upload error: $e\n$st');
+          backgroundColor: Colors.red.shade400,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
     }
   }
 
+  // Show Success Dialog After Successful Upload
   void _showSuccessDialog() {
     showDialog(
       context: context,
@@ -219,57 +218,94 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
         backgroundColor: Colors.white,
         child: Padding(
           padding: const EdgeInsets.all(22),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(
-              width: 70,
-              height: 70,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFF667EEA), Color(0xFF764BA2)]),
-                shape: BoxShape.circle,
-                boxShadow: [BoxShadow(color: const Color(0xFF667EEA).withOpacity(0.25), blurRadius: 12)],
-              ),
-              child: Icon(Icons.verified, size: 36, color: Colors.white),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              "Successfully Listed",
-              style: GoogleFonts.quicksand(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.black),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "Your Room Has Been Successfully Listed And Is Now Available To Others.",
-              textAlign: TextAlign.center,
-              style: GoogleFonts.quicksand(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              height: 46,
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  Navigator.of(context).pop();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF667EEA),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 70,
+                height: 70,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF667EEA).withOpacity(0.25),
+                      blurRadius: 12,
+                    ),
+                  ],
                 ),
-                child: Text("Continue", style: GoogleFonts.quicksand(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
+                child: const Icon(Icons.verified, size: 36, color: Colors.white),
               ),
-            ),
-          ]),
+              const SizedBox(height: 14),
+              Text(
+                "Successfully Listed",
+                style: GoogleFonts.quicksand(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "Your Room Has Been Successfully Listed And Is Now Available To Others.",
+                textAlign: TextAlign.center,
+                style: GoogleFonts.quicksand(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.of(context).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF667EEA),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: Text(
+                    "Continue",
+                    style: GoogleFonts.quicksand(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
+  // Build Dialog Header With Back Button And Title
   Widget _buildHeader() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: const BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 4))],
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -282,7 +318,11 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
                 shape: BoxShape.circle,
                 color: Colors.grey.shade100,
               ),
-              child: Icon(Icons.arrow_back_rounded, size: 20, color: Colors.grey.shade700),
+              child: Icon(
+                Icons.arrow_back_rounded,
+                size: 20,
+                color: Colors.grey.shade700,
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -294,7 +334,11 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
                   foreground: Paint()
-                    ..shader = const LinearGradient(colors: [Color(0xFF667EEA), Color(0xFF764BA2)]).createShader(const Rect.fromLTWH(0, 0, 200, 70)),
+                    ..shader = const LinearGradient(
+                      colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                    ).createShader(
+                      const Rect.fromLTWH(0, 0, 200, 70),
+                    ),
                 ),
                 textAlign: TextAlign.center,
                 maxLines: 1,
@@ -311,6 +355,7 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
     );
   }
 
+  // Build Image Selection Section
   Widget _buildImageSection() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -323,11 +368,19 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.grey.shade200, width: 1.2),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 4))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-              child: _selectedImages.isEmpty ? Center(child: _buildAddImageTile(centered: true)) : _buildImageStrip(),
+              child: _selectedImages.isEmpty
+                  ? Center(child: _buildAddImageTile(centered: true))
+                  : _buildImageStrip(),
             ),
           ),
           if (_imageError != null)
@@ -336,7 +389,11 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
               child: Center(
                 child: Text(
                   _imageError!,
-                  style: GoogleFonts.quicksand(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.red.shade600),
+                  style: GoogleFonts.quicksand(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.red.shade600,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -346,15 +403,20 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
     );
   }
 
+  // Build Horizontal Image Strip With Remove Option
   Widget _buildImageStrip() {
-    final count = _selectedImages.length < 6 ? _selectedImages.length + 1 : 6;
+    final int count = _selectedImages.length < 6 ? _selectedImages.length + 1 : 6;
+
     return ListView.separated(
       scrollDirection: Axis.horizontal,
       itemCount: count,
       separatorBuilder: (_, __) => const SizedBox(width: 8),
       itemBuilder: (context, idx) {
-        if (idx == _selectedImages.length && _selectedImages.length < 6) return _buildAddImageTile();
-        final imgFile = _selectedImages[idx];
+        if (idx == _selectedImages.length && _selectedImages.length < 6) {
+          return _buildAddImageTile();
+        }
+
+        final File imgFile = _selectedImages[idx];
         return SizedBox(
           width: 130,
           child: Stack(
@@ -378,8 +440,15 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
                   }),
                   child: Container(
                     padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                    child: Icon(Icons.close_rounded, size: 16, color: Colors.red.shade600),
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 16,
+                      color: Colors.red.shade600,
+                    ),
                   ),
                 ),
               ),
@@ -390,6 +459,7 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
     );
   }
 
+  // Build Add Image Tile Button
   Widget _buildAddImageTile({bool centered = false}) {
     return GestureDetector(
       onTap: _uploadImages,
@@ -415,7 +485,11 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
                 ),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.camera_alt_rounded, size: 20, color: Colors.white),
+              child: const Icon(
+                Icons.camera_alt_rounded,
+                size: 20,
+                color: Colors.white,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
@@ -434,20 +508,27 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
     );
   }
 
+  // Build Input Fields Container
   Widget _buildInputFieldsContainer() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         children: [
           _buildRowInput(
             controller: _roomNameController,
             label: "Name Your Room",
-            icon: Icons.holiday_village_rounded, // Changed from Icons.room
+            icon: Icons.holiday_village_rounded,
             iconColor: const Color(0xFF4CAF50),
             validator: (value) {
               if (value == null || value.trim().isEmpty) return 'Room Name Is Required';
@@ -482,7 +563,7 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
             validator: (value) {
               if (value == null || value.trim().isEmpty) return 'Number Of Windows Is Required';
               if (int.tryParse(value.trim()) == null) return 'Enter A Valid Number';
-              final n = int.parse(value.trim());
+              final int n = int.parse(value.trim());
               if (n < 0) return 'Number Cannot Be Negative';
               if (n > 50) return 'Max 50 Windows Allowed';
               return null;
@@ -499,14 +580,13 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
             validator: (value) {
               if (value == null || value.trim().isEmpty) return 'Room Size Is Required';
               if (int.tryParse(value.trim()) == null) return 'Enter A Valid Number';
-              final s = int.parse(value.trim());
+              final int s = int.parse(value.trim());
               if (s <= 0) return 'Size Must Be Greater Than 0';
               if (s > 5000) return 'Maximum Allowed Is 5000';
               return null;
             },
           ),
           Divider(height: 1, color: Colors.grey.shade100),
-          // Location Input with Map Picker
           _buildLocationInput(),
           Divider(height: 1, color: Colors.grey.shade100),
           _buildRowInput(
@@ -519,7 +599,7 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
             validator: (value) {
               if (value == null || value.trim().isEmpty) return 'Please Enter Room Price';
               if (int.tryParse(value.trim()) == null) return 'Please Enter A Valid Number';
-              final price = int.parse(value.trim());
+              final int price = int.parse(value.trim());
               if (price <= 0) return 'Price Must Be Greater Than 0';
               if (price > 1000000) return 'Price Seems Too High';
               return null;
@@ -530,6 +610,7 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
     );
   }
 
+  // Build Location Input With Map Picker
   Widget _buildLocationInput() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -544,7 +625,11 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
               color: Colors.grey.shade100,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(Icons.location_pin, size: 18, color: const Color(0xFFFF5722)),
+            child: Icon(
+              Icons.location_pin,
+              size: 18,
+              color: const Color(0xFFFF5722),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -580,7 +665,7 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
                       ),
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) return 'Location Is Required';
-                        if (value.trim().length < 5) return 'Please select a location on map';
+                        if (value.trim().length < 5) return 'Please Select A Location On Map';
                         return null;
                       },
                     ),
@@ -594,6 +679,7 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
     );
   }
 
+  // Build Row Input Field With Icon
   Widget _buildRowInput({
     required TextEditingController controller,
     required String label,
@@ -616,14 +702,18 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
               color: Colors.grey.shade100,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icon, size: 18, color: iconColor),
+            child: Icon(
+              icon,
+              size: 18,
+              color: iconColor,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: ValueListenableBuilder<TextEditingValue>(
               valueListenable: controller,
               builder: (context, value, _) {
-                final showSuffix = hintSuffix != null && value.text.trim().isNotEmpty;
+                final bool showSuffix = hintSuffix != null && value.text.trim().isNotEmpty;
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -670,13 +760,20 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
     );
   }
 
+  // Build Main Container With Action Buttons
   Widget _buildMainContainerWithButtons() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         children: [
@@ -691,11 +788,13 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
                     height: 44,
                     child: ElevatedButton(
                       onPressed: () {
-                        // To do we will use it later
+                        // Estimate Feature To Be Implemented Later
                       },
                       style: ElevatedButton.styleFrom(
                         padding: EdgeInsets.zero,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                         elevation: 4,
                       ),
                       child: Ink(
@@ -712,7 +811,11 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.analytics_outlined, size: 18, color: Colors.white),
+                              const Icon(
+                                Icons.analytics_outlined,
+                                size: 18,
+                                color: Colors.white,
+                              ),
                               const SizedBox(width: 8),
                               Text(
                                 "Estimate",
@@ -737,7 +840,9 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
                       onPressed: _isUploading ? null : _submitForm,
                       style: ElevatedButton.styleFrom(
                         padding: EdgeInsets.zero,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                         elevation: 4,
                       ),
                       child: Ink(
@@ -752,11 +857,22 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
                         child: Container(
                           alignment: Alignment.center,
                           child: _isUploading
-                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
+                              ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: Colors.white,
+                            ),
+                          )
                               : Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.rocket_launch_rounded, size: 18, color: Colors.white),
+                              const Icon(
+                                Icons.rocket_launch_rounded,
+                                size: 18,
+                                color: Colors.white,
+                              ),
                               const SizedBox(width: 8),
                               Text(
                                 "Publish",
@@ -781,6 +897,7 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
     );
   }
 
+  // Build Toggle Container For Amenity Selection
   Widget _buildToggleContainer() {
     return Column(
       children: [
@@ -793,7 +910,10 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
               Expanded(
                 child: Text(
                   "Water Availability",
-                  style: GoogleFonts.quicksand(fontSize: 14, fontWeight: FontWeight.w700),
+                  style: GoogleFonts.quicksand(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -819,7 +939,10 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
               Expanded(
                 child: Text(
                   "Sunlight",
-                  style: GoogleFonts.quicksand(fontSize: 14, fontWeight: FontWeight.w700),
+                  style: GoogleFonts.quicksand(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -840,12 +963,15 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
           child: Row(
             children: [
-              const Icon(Icons.bathtub_outlined, size: 18, color: Color(0xFF795548)),
+              const Icon(Icons.bathtub_outlined, size: 18, color: const Color(0xFF795548)),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   "Attached Bathroom",
-                  style: GoogleFonts.quicksand(fontSize: 14, fontWeight: FontWeight.w700),
+                  style: GoogleFonts.quicksand(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -865,7 +991,13 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
     );
   }
 
-  Widget _buildIosStyleToggle({required List<String> options, required String current, required Color color, required ValueChanged<String> onChanged}) {
+  // Build iOS-Style Toggle Widget
+  Widget _buildIosStyleToggle({
+    required List<String> options,
+    required String current,
+    required Color color,
+    required ValueChanged<String> onChanged,
+  }) {
     return Container(
       height: 40,
       decoration: BoxDecoration(
@@ -875,11 +1007,15 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
       ),
       child: Row(
         children: List.generate(options.length, (i) {
-          final opt = options[i];
-          final selected = current == opt;
+          final String opt = options[i];
+          final bool selected = current == opt;
+
           return Expanded(
             child: Padding(
-              padding: EdgeInsets.only(left: i == 0 ? 0 : 4, right: i == options.length - 1 ? 0 : 4),
+              padding: EdgeInsets.only(
+                left: i == 0 ? 0 : 4,
+                right: i == options.length - 1 ? 0 : 4,
+              ),
               child: GestureDetector(
                 onTap: () => onChanged(opt),
                 child: AnimatedContainer(
@@ -913,7 +1049,7 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    final double screenWidth = MediaQuery.of(context).size.width;
 
     return Dialog(
       insetPadding: EdgeInsets.zero,
@@ -922,9 +1058,12 @@ class _OwnerSectionDialogState extends State<OwnerSectionDialog> {
         height: MediaQuery.of(context).size.height * 0.9,
         width: screenWidth,
         margin: EdgeInsets.only(top: screenWidth < 600 ? 30 : 40),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8F9FA),
-          borderRadius: const BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
+        decoration: const BoxDecoration(
+          color: Color(0xFFF8F9FA),
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
+          ),
         ),
         child: Column(
           children: [

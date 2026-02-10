@@ -1,29 +1,29 @@
 import 'package:flutter/material.dart';
 
-/// Utility Functions And Constants For Authentication Screens
+/// AUTHENTICATION SCREEN UTILITY CLASS FOR RESPONSIVE DESIGN AND BACKGROUND ELEMENTS
 class AuthUtils {
-  /// Calculate Responsive Height Based On Screen Size
+
+  /// CALCULATE HEIGHT VALUE AS PERCENTAGE OF SCREEN HEIGHT FOR RESPONSIVE LAYOUT
   static double getResponsiveHeight(BuildContext context, double percentage) {
     return MediaQuery.of(context).size.height * percentage;
   }
 
-  /// Calculate Responsive Width Based On Screen Size
+  /// CALCULATE WIDTH VALUE AS PERCENTAGE OF SCREEN WIDTH FOR RESPONSIVE LAYOUT
   static double getResponsiveWidth(BuildContext context, double percentage) {
     return MediaQuery.of(context).size.width * percentage;
   }
 
-  /// Get Bottom Inset For Keyboard Avoidance
+  /// RETRIEVE KEYBOARD BOTTOM INSET FOR PROPER VIEW ADJUSTMENT
   static double getBottomInset(BuildContext context) {
     return MediaQuery.of(context).viewInsets.bottom;
   }
 
-  /// Build Background Radial Gradients For Authentication Screens
+  /// CREATE BACKGROUND RADIAL GRADIENTS FOR AUTHENTICATION SCREEN VISUAL ENHANCEMENT
   static List<Widget> buildBackgroundGradients(BuildContext context) {
     final double height = MediaQuery.of(context).size.height;
     final double width = MediaQuery.of(context).size.width;
 
     return [
-      // Top Right Gradient
       Positioned(
         top: -height * 0.15,
         right: -width * 0.1,
@@ -32,11 +32,12 @@ class AuthUtils {
           height: width * 0.5,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: RadialGradient(colors: [const Color(0xFF007AFF).withOpacity(0.08), Colors.transparent]),
+            gradient: RadialGradient(
+                colors: [const Color(0xFF007AFF).withOpacity(0.08), Colors.transparent]
+            ),
           ),
         ),
       ),
-      // Bottom Left Gradient
       Positioned(
         bottom: -height * 0.1,
         left: -width * 0.1,
@@ -45,7 +46,9 @@ class AuthUtils {
           height: width * 0.4,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: RadialGradient(colors: [const Color(0xFFFF9500).withOpacity(0.06), Colors.transparent]),
+            gradient: RadialGradient(
+                colors: [const Color(0xFFFF9500).withOpacity(0.06), Colors.transparent]
+            ),
           ),
         ),
       ),

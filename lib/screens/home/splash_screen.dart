@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lottie/lottie.dart';
@@ -8,7 +7,8 @@ import '../../../services/auth_service.dart';
 import '../auth/login_screen.dart';
 import '../main/main_screen.dart';
 
-/// Splash Screen - First Screen Displayed When App Launches
+/// Splash Screen - First Screen Displayed When Application Launches
+/// Handles Initial Animation And Navigation Based On Authentication Status
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -17,67 +17,59 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
-  // Timer For Navigation Delay
   Timer? _navigationTimer;
-
-  // Animation Controller For Smooth Fade Effect
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
-
-  // Get Authentication Service Instance
   final AuthService _authService = Get.find<AuthService>();
 
   @override
   void initState() {
     super.initState();
 
-    // Initialize Animation Controller
+    // Initialize Animation Controller For Smooth Fade-In Effect
     _animationController = AnimationController(
-      duration: const Duration(milliseconds: 2000), // 2 Second Fade Duration
+      duration: const Duration(milliseconds: 2000),
       vsync: this,
     );
 
-    // Create Smooth Fade Animation
+    // Configure Fade Animation From Transparent To Opaque
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _animationController,
-        curve: Curves.easeInOut, // Smooth Easing Curve
+        curve: Curves.easeInOut,
       ),
     );
 
-    // Start Fade Animation
+    // Start Fade Animation Immediately
     _animationController.forward();
 
-    // Start Navigation Timer When Screen Initializes
+    // Initialize Navigation Timer
     _startNavigationTimer();
   }
 
   @override
   void dispose() {
-    // Cancel Timer To Prevent Memory Leaks
+    // Clean Up Resources To Prevent Memory Leaks
     _navigationTimer?.cancel();
-
-    // Dispose Animation Controller
     _animationController.dispose();
-
     super.dispose();
   }
 
-  /// Start Timer For Automatic Navigation After Delay
+  /// Start Timer For Automatic Navigation After Specified Delay
   void _startNavigationTimer() {
     _navigationTimer = Timer(
-      const Duration(milliseconds: 3500), // 3.5 Seconds Total Delay
+      const Duration(milliseconds: 3500),
       _navigateBasedOnAuthStatus,
     );
   }
 
-  /// Navigate Based On User Authentication Status
+  /// Determine Navigation Destination Based On User Authentication Status
   void _navigateBasedOnAuthStatus() {
     if (_authService.isLoggedIn) {
-      // User Is Already Logged In, Navigate To Home Screen
+      // User Is Authenticated - Navigate To Main Application Screen
       Get.off(() => const MainScreen());
     } else {
-      // User Is Not Logged In, Navigate To Login Screen
+      // User Is Not Authenticated - Navigate To Login Screen
       Get.off(() => LoginScreen());
     }
   }
@@ -88,15 +80,15 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       body: Container(
         width: double.infinity,
         height: double.infinity,
-        // Very Dark Blue Gradient Background
+        // Dark Blue Gradient Background For Premium Look
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Color(0xFF000814), // Almost Black Blue
-              Color(0xFF001D3D), // Very Dark Blue
-              Color(0xFF003566), // Dark Blue
+              Color(0xFF000814),
+              Color(0xFF001D3D),
+              Color(0xFF003566),
             ],
           ),
         ),
@@ -106,16 +98,24 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             child: Container(
               width: 180,
               height: 180,
+              // Circular Container With Thin White Border
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                // Thin White Outline (No Fill Color)
                 border: Border.all(
                   color: Colors.white.withOpacity(0.9),
-                  width: 0.4, // Thin Outline
+                  width: 0.4,
                 ),
               ),
               child: Center(
-                child: Lottie.asset('assets/images/smart_room.json', width: 160, height: 160, fit: BoxFit.contain, repeat: true, frameRate: FrameRate.max),
+                // Lottie Animation Asset For Smooth Visual Experience
+                child: Lottie.asset(
+                  'assets/images/smart_room.json',
+                  width: 160,
+                  height: 160,
+                  fit: BoxFit.contain,
+                  repeat: true,
+                  frameRate: FrameRate.max,
+                ),
               ),
             ),
           ),

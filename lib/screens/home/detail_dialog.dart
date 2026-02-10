@@ -1,17 +1,13 @@
+// Room Details Bottom Sheet - Complete Production Solution
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:get/get_core/src/get_main.dart';
-import 'package:get/get_instance/src/extension_instance.dart';
-import 'package:get/get_navigation/src/extension_navigation.dart';
-import 'package:get/get_navigation/src/routes/transitions_type.dart';
+import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shimmer/shimmer.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
@@ -19,7 +15,6 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../../chat/helper/dialogs.dart';
 import '../../chat/models/chat_user.dart';
 import '../../chat/screens/chat_screen.dart';
 import '../../chat/services/chat_service.dart';
@@ -41,27 +36,27 @@ class RoomDetailsBottomSheet extends StatefulWidget {
 
 class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+  // Animation Controllers For Smooth Transitions
+  late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
   late Animation<double> _fadeAnimation;
+
+  // Image Viewing State Variables
   int _selectedImageIndex = 0;
   bool _isViewingFullImage = false;
-  bool _isRoomRequested = false;
-  bool _isLoadingStatus = false; // Set to false since we get status instantly
 
-  // Map related state variables
+  // Room Booking Status Variables
+  bool _isRoomRequested = false;
+
+  // Map Related State Variables
   final _currentMapType = ValueNotifier<MapType>(MapType.normal);
   final _mapController = Completer<GoogleMapController>();
-  final _isLoadingLocation = ValueNotifier<bool>(false);
   final _currentLatLng = ValueNotifier<LatLng?>(null);
   final _polylines = ValueNotifier<Set<Polyline>>({});
-  final _walkTime = ValueNotifier<String>("0 min");
-  final _distance = ValueNotifier<String>("0.00 km");
-
-  // New polyline approach - direct drawing
   LatLng? _destination;
   bool _polylineDrawn = false;
 
+  // Helper Method To Extract Images From Room Data
   List<String> get _images {
     final imagesData = widget.room['images'];
     if (imagesData is List) {
@@ -69,101 +64,91 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     }
     return [];
   }
-// Updated method for detail_dialog.dart
+
+  // Method To Start Chat With Room Owner
   Future<void> _startChatWithOwner() async {
     try {
-      print('🚀 Starting chat with room owner...');
-
-      // Get the required services
       final chatService = Get.find<ChatService>();
       final currentUser = FirebaseAuth.instance.currentUser;
 
       if (currentUser == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Please login to chat', style: GoogleFonts.quicksand()),
+            content: Text('Please Login To Chat', style: GoogleFonts.quicksand()),
             backgroundColor: Colors.red,
           ),
         );
         return;
       }
 
-      // Get owner ID - from your logs, it's 'sessionId'
-      String? ownerId = widget.room['sessionId']?.toString();
+      // Get Owner Session ID From Room Data Or Firestore
+      String? ownerSessionId = widget.room['sessionId']?.toString();
 
-      // If not in current data, fetch from Firestore
-      if (ownerId == null && widget.roomDocumentId != null) {
+      if (ownerSessionId == null && widget.roomDocumentId != null) {
         try {
           final roomDoc = await FirebaseFirestore.instance
               .collection('room')
               .doc(widget.roomDocumentId!)
               .get();
 
-          ownerId = roomDoc.data()?['sessionId']?.toString();
+          ownerSessionId = roomDoc.data()?['sessionId']?.toString();
         } catch (e) {
-          print('❌ Error fetching room: $e');
+          // Log Error But Continue With Fallback
         }
       }
 
-      if (ownerId == null || ownerId.isEmpty) {
+      if (ownerSessionId == null || ownerSessionId.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Could not find room owner', style: GoogleFonts.quicksand()),
+            content: Text('Could Not Find Room Owner', style: GoogleFonts.quicksand()),
             backgroundColor: Colors.orange,
           ),
         );
         return;
       }
 
-      // Check if trying to chat with self
-      if (ownerId == currentUser.uid) {
+      // Validate Not Chatting With Self
+      if (ownerSessionId == currentUser.uid) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('You cannot chat with yourself', style: GoogleFonts.quicksand()),
+            content: Text('You Cannot Chat With Yourself', style: GoogleFonts.quicksand()),
             backgroundColor: Colors.amber,
           ),
         );
         return;
       }
 
-      print('👤 Current User: ${currentUser.uid}');
-      print('🏠 Room Owner: $ownerId');
-
-      // Close the bottom sheet first
+      // Close Bottom Sheet Before Navigation
       Navigator.pop(context);
 
-      // Show loading indicator
+      // Show Loading Indicator
       Get.dialog(
         const Center(child: CircularProgressIndicator()),
         barrierDismissible: false,
       );
 
       try {
-        // STEP 1: Get or create conversation
-        final conversation = await chatService.getOrCreateConversation(ownerId);
-        print('✅ Conversation ID: ${conversation.conversationId}');
+        // Get Or Create Conversation With Owner
+        final conversation = await chatService.getOrCreateConversation(ownerSessionId);
 
-        // STEP 2: Get owner user details
-        ChatUser? ownerUser = await chatService.getUserById(ownerId);
+        // Get Owner User Details
+        ChatUser? ownerUser = await chatService.getUserById(ownerSessionId);
 
         if (ownerUser == null) {
-          // Create temporary user for owner
+          // Create Temporary User Profile For Owner
           ownerUser = ChatUser.createTemporary(
-            userId: ownerId,
+            userId: ownerSessionId,
             name: widget.room['roomName']?.toString() ?? 'Room Owner',
             email: widget.room['ownerEmail']?.toString() ?? '',
             phone: widget.room['ownerPhone']?.toString() ?? '',
             profilePath: widget.room['ownerImage']?.toString() ?? '',
           );
-          print('⚠️ Created temporary user for owner: ${ownerUser.name}');
-        } else {
-          print('✅ Found owner in User collection: ${ownerUser.name}');
         }
 
-        // Close loading dialog
+        // Close Loading Dialog
         Get.back();
 
-        // STEP 3: Navigate to chat screen with proper transition
+        // Navigate To Chat Screen
         await Get.to(
               () => ChatScreen(
             conversation: conversation,
@@ -173,30 +158,27 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
           duration: const Duration(milliseconds: 300),
         );
 
-        print('✅ Navigation to chat screen successful');
-
       } catch (e) {
-        Get.back(); // Close loading dialog
-        print('❌ Error in chat setup: $e');
+        Get.back(); // Close Loading Dialog
         Get.snackbar(
           'Error',
-          'Failed to start chat: ${e.toString()}',
+          'Failed To Start Chat: ${e.toString()}',
           backgroundColor: Colors.red,
           colorText: Colors.white,
         );
       }
 
     } catch (e) {
-      print('❌ Error in _startChatWithOwner: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Something went wrong: $e', style: GoogleFonts.quicksand()),
+          content: Text('Something Went Wrong: $e', style: GoogleFonts.quicksand()),
           backgroundColor: Colors.red,
         ),
       );
     }
   }
 
+  // Check If Room Is Near KU Gate Based On Distance
   bool get _isNearKU {
     try {
       final distance = widget.room['distance']?.toString() ?? "0.0";
@@ -211,6 +193,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     return false;
   }
 
+  // Format Distance With Proper Units
   String _getFormattedDistance() {
     final distance = widget.room['distance']?.toString() ?? "0.0";
     if (!distance.toLowerCase().contains('km')) {
@@ -222,29 +205,30 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
   @override
   void initState() {
     super.initState();
-    _debugRoomStructure();
-    _controller = AnimationController(
+
+    // Initialize Animations
+    _animationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
 
     _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
       CurvedAnimation(
-        parent: _controller,
+        parent: _animationController,
         curve: Curves.easeOutBack,
       ),
     );
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
-        parent: _controller,
+        parent: _animationController,
         curve: Curves.easeOut,
       ),
     );
 
-    _controller.forward();
+    _animationController.forward();
 
-    // Initialize destination
+    // Initialize Destination Coordinates If Available
     final hasCoordinates = widget.room['latitude'] != null && widget.room['longitude'] != null;
     if (hasCoordinates) {
       final destinationLat = double.tryParse(widget.room['latitude'].toString());
@@ -254,32 +238,30 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
       }
     }
 
-    // Get location and draw polyline
+    // Get User Location And Draw Polyline
     _getLocationAndDrawPolyline();
 
-    // Check room status from the passed data (no Firestore call needed)
+    // Check Room Status From Passed Data
     _checkRoomStatus();
   }
 
+  // Check Room Status From Room Data
   void _checkRoomStatus() {
     try {
-      // Read status directly from the room data passed from home screen
       final status = widget.room['status']?.toString() ?? '';
       setState(() {
         _isRoomRequested = status.toLowerCase() == 'requested';
-        // No loading needed - status is already available
       });
     } catch (e) {
-      debugPrint("Error checking room status: $e");
       setState(() {
         _isRoomRequested = false;
       });
     }
   }
 
+  // Get Current Location And Draw Polyline To Destination
   Future<void> _getLocationAndDrawPolyline() async {
     try {
-      // Check location permission
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -287,30 +269,29 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
 
       if (permission == LocationPermission.whileInUse ||
           permission == LocationPermission.always) {
-        // Get current location
-        Position position = await Geolocator.getCurrentPosition(
+        final Position position = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high,
         );
 
         _currentLatLng.value = LatLng(position.latitude, position.longitude);
 
-        // Draw polyline immediately if destination exists
+        // Draw Polyline Immediately If Destination Exists
         if (_destination != null && !_polylineDrawn) {
           await _drawDirectPolyline();
         }
       }
     } catch (e) {
-      debugPrint("Location error in init: $e");
+      // Location Error Handled Silently
     }
   }
 
-  // NEW: Direct polyline drawing (simplified approach)
+  // Draw Polyline Between Current Location And Destination
   Future<void> _drawDirectPolyline() async {
     if (_currentLatLng.value == null || _destination == null) return;
 
     try {
-      // Try OSRM API first
-      final url = 'https://router.project-osrm.org/route/v1/foot/'
+      // Try OSRM API For Detailed Walking Route
+      final String url = 'https://router.project-osrm.org/route/v1/foot/'
           '${_currentLatLng.value!.longitude},${_currentLatLng.value!.latitude};'
           '${_destination!.longitude},${_destination!.latitude}'
           '?overview=full&geometries=geojson';
@@ -322,7 +303,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
         if (data['routes'] != null && data['routes'].isNotEmpty) {
           final route = data['routes'][0];
           final coords = route['geometry']['coordinates'] as List;
-          List<LatLng> points = coords.map((c) => LatLng(c[1], c[0])).toList();
+          final List<LatLng> points = coords.map((c) => LatLng(c[1], c[0])).toList();
 
           _polylines.value = {
             Polyline(
@@ -341,10 +322,10 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
         }
       }
     } catch (e) {
-      debugPrint("OSRM failed, drawing straight line: $e");
+      // Fallback To Straight Line If OSRM Fails
     }
 
-    // Fallback: Draw straight line
+    // Draw Straight Line As Fallback
     _polylines.value = {
       Polyline(
         polylineId: const PolylineId("walk_path"),
@@ -361,16 +342,18 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
 
   @override
   void dispose() {
-    _controller.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
+  // Close Bottom Sheet With Animation
   void _closeSheet() {
-    _controller.reverse().then((_) {
+    _animationController.reverse().then((_) {
       Navigator.pop(context);
     });
   }
 
+  // Open Full Screen Image Viewer
   void _viewFullImage(int index) {
     setState(() {
       _selectedImageIndex = index;
@@ -378,40 +361,43 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     });
   }
 
+  // Close Full Screen Image Viewer
   void _closeImageViewer() {
     setState(() {
       _isViewingFullImage = false;
     });
   }
 
+  // Toggle Between Map Types (Normal/Satellite)
   void _toggleMapType() {
     _currentMapType.value = _currentMapType.value == MapType.normal ? MapType.satellite : MapType.normal;
   }
 
+  // Center Map On Current Location
   Future<void> _goToCurrentLocation() async {
     try {
-      Position position = await Geolocator.getCurrentPosition(
+      final Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
-      LatLng currentLocation = LatLng(position.latitude, position.longitude);
+      final LatLng currentLocation = LatLng(position.latitude, position.longitude);
 
       _currentLatLng.value = currentLocation;
 
-      // Center map on current location
       final controller = await _mapController.future;
       await controller.animateCamera(
         CameraUpdate.newLatLngZoom(currentLocation, 16),
       );
 
-      // Redraw polyline
+      // Redraw Polyline With New Location
       if (_destination != null) {
         await _drawDirectPolyline();
       }
     } catch (e) {
-      debugPrint("Error getting current location: $e");
+      // Location Error Handled Silently
     }
   }
 
+  // Open Destination In Google Maps App
   Future<void> _openInGoogleMaps() async {
     final latitude = widget.room['latitude'];
     final longitude = widget.room['longitude'];
@@ -419,14 +405,14 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
       final lat = double.tryParse(latitude.toString());
       final lng = double.tryParse(longitude.toString());
       if (lat != null && lng != null) {
-        final url = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
+        final Uri url = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
         if (await canLaunchUrl(url)) {
           await launchUrl(url);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                'Could not launch Google Maps',
+                'Could Not Launch Google Maps',
                 style: GoogleFonts.quicksand(fontWeight: FontWeight.w600),
               ),
               backgroundColor: Colors.red,
@@ -437,8 +423,9 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     }
   }
 
+  // Open Booking Confirmation Dialog
   void _openBookingConfirmation() {
-    if (_isRoomRequested) return; // Don't open if room is already requested
+    if (_isRoomRequested) return;
 
     showDialog(
       context: context,
@@ -447,13 +434,12 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
         roomDocumentId: widget.roomDocumentId,
       ),
     ).then((_) {
-      // Refresh status after booking dialog closes
       _refreshRoomStatus();
     });
   }
 
+  // Refresh Room Status From Firestore
   Future<void> _refreshRoomStatus() async {
-    // After booking, refresh status by fetching from Firestore
     try {
       final firestore = FirebaseFirestore.instance;
       if (widget.roomDocumentId != null && widget.roomDocumentId!.isNotEmpty) {
@@ -469,38 +455,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
         }
       }
     } catch (e) {
-      debugPrint("Error refreshing room status: $e");
-    }
-  }
-  void _debugRoomStructure() async {
-    try {
-      print('\n=== ROOM STRUCTURE DEBUG ===');
-
-      if (widget.roomDocumentId != null) {
-        final firestore = FirebaseFirestore.instance;
-        final roomDoc = await firestore.collection('room').doc(widget.roomDocumentId!).get();
-
-        if (roomDoc.exists) {
-          print('✅ Room document exists in Firestore');
-          print('Document ID: ${roomDoc.id}');
-          print('Data: ${roomDoc.data()}');
-
-          // Check for user reference
-          final data = roomDoc.data()!;
-          data.forEach((key, value) {
-            print('  $key: $value (Type: ${value.runtimeType})');
-
-            // If value is DocumentReference
-            if (value is DocumentReference) {
-              print('     ↳ Is DocumentReference to: ${value.path}');
-            }
-          });
-        }
-      }
-
-      print('=== END DEBUG ===\n');
-    } catch (e) {
-      print('Debug error: $e');
+      // Error Handled Silently
     }
   }
 
@@ -511,7 +466,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     final isTablet = screenWidth > 600;
 
     return AnimatedBuilder(
-      animation: _controller,
+      animation: _animationController,
       builder: (context, child) {
         return Opacity(
           opacity: _fadeAnimation.value,
@@ -526,7 +481,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
         child: Container(
           color: Colors.black.withOpacity(0.4),
           child: GestureDetector(
-            onTap: () {}, // Prevent closing when tapping on content
+            onTap: () {},
             child: DraggableScrollableSheet(
               initialChildSize: isTablet ? 0.75 : 0.85,
               minChildSize: 0.5,
@@ -558,11 +513,11 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
+  // Main Content Builder
   Widget _buildContent(ScrollController scrollController, bool isSmallScreen, bool isTablet) {
     final room = widget.room;
-    final images = _images;
 
-    // Data extraction with fallbacks
+    // Extract Room Data With Fallbacks
     final title = room['roomName']?.toString() ?? "Unnamed Room";
     final walkTime = room['walkTime']?.toString() ?? "0 min";
     final location = "$walkTime walk from KU Gate";
@@ -573,7 +528,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     final priceNPR = room['price'] is int ? room['price'] as int : int.tryParse(room['price']?.toString() ?? '0') ?? 0;
     final distance = _getFormattedDistance();
     final internetSpeed = "${room['internet']?.toString() ?? '0'} Mbps";
-    final fullLocation = room['location']?.toString() ?? "Location not specified";
+    final fullLocation = room['location']?.toString() ?? "Location Not Specified";
     final latitude = room['latitude'];
     final longitude = room['longitude'];
 
@@ -581,23 +536,23 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
       controller: scrollController,
       physics: const BouncingScrollPhysics(),
       slivers: [
-        // Header with drag handle
+        // Header Section
         SliverToBoxAdapter(
           child: _buildHeader(isSmallScreen, isTablet),
         ),
 
-        // Main Image
+        // Main Image Section
         SliverToBoxAdapter(
-          child: _buildMainImageSection(images, isSmallScreen, isTablet),
+          child: _buildMainImageSection(isSmallScreen, isTablet),
         ),
 
-        // Thumbnails Row - Centered
-        if (images.length > 1)
+        // Thumbnails Section
+        if (_images.length > 1)
           SliverToBoxAdapter(
-            child: _buildThumbnailsSection(images, isSmallScreen, isTablet),
+            child: _buildThumbnailsSection(isSmallScreen, isTablet),
           ),
 
-        // Main Room Card with everything
+        // Room Details Card
         SliverToBoxAdapter(
           child: Padding(
             padding: EdgeInsets.symmetric(
@@ -625,7 +580,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Room Title and Status Button Row
+                    // Room Title And Status Row
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -649,7 +604,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
 
                               SizedBox(height: isTablet ? 8 : (isSmallScreen ? 6 : 6)),
 
-                              // Location with RED icon
+                              // Location Information
                               Row(
                                 children: [
                                   Icon(
@@ -676,7 +631,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
 
                         SizedBox(width: isTablet ? 16 : (isSmallScreen ? 8 : 10)),
 
-                        // Room Status Button - Shows Available or Requested (NO LOADING)
+                        // Room Status Indicator
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
@@ -689,12 +644,12 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                               end: Alignment.bottomRight,
                               colors: _isRoomRequested
                                   ? [
-                                Color(0xFFFF9800), // Orange
-                                Color(0xFFF57C00), // Dark Orange
+                                Color(0xFFFF9800),
+                                Color(0xFFF57C00),
                               ]
                                   : [
-                                Color(0xFF4CAF50), // Green
-                                Color(0xFF2E7D32), // Dark Green
+                                Color(0xFF4CAF50),
+                                Color(0xFF2E7D32),
                               ],
                             ),
                             boxShadow: [
@@ -774,7 +729,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                       ),
                     ),
 
-                    // Monthly Rent Section with Compare Button
+                    // Monthly Rent Section
                     Padding(
                       padding: EdgeInsets.only(
                         top: isTablet ? 20 : (isSmallScreen ? 16 : 18),
@@ -803,7 +758,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            // Monthly Rent Details
+                            // Rent Details
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
@@ -835,7 +790,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                                       style: GoogleFonts.quicksand(
                                         fontSize: isTablet ? 22 : (isSmallScreen ? 18 : 20),
                                         fontWeight: FontWeight.w800,
-                                        color: ModernColors.onSurface, // Black color
+                                        color: ModernColors.onSurface,
                                       ),
                                     ),
                                     SizedBox(width: isTablet ? 6 : (isSmallScreen ? 3 : 4)),
@@ -852,7 +807,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                               ],
                             ),
 
-                            // Compare Button (Green Gradient)
+                            // Compare Button
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 12,
@@ -864,8 +819,8 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                   colors: [
-                                    Color(0xFF4CAF50), // Green
-                                    Color(0xFF2E7D32), // Dark Green
+                                    Color(0xFF4CAF50),
+                                    Color(0xFF2E7D32),
                                   ],
                                 ),
                                 boxShadow: [
@@ -891,7 +846,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                       ),
                     ),
 
-                    // Divider before Additional Amenities
+                    // Divider
                     Padding(
                       padding: EdgeInsets.symmetric(vertical: isTablet ? 16 : (isSmallScreen ? 12 : 14)),
                       child: Divider(
@@ -900,7 +855,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                       ),
                     ),
 
-                    // Additional Amenities
+                    // Additional Amenities Section
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -914,11 +869,10 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                         ),
                         SizedBox(height: isTablet ? 16 : (isSmallScreen ? 10 : 12)),
 
-                        // First Row: Water & Sunlight
+                        // Water And Sunlight Pills
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            // Water Pill
                             Container(
                               padding: EdgeInsets.symmetric(
                                 horizontal: isTablet ? 14 : (isSmallScreen ? 10 : 10),
@@ -937,8 +891,6 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                                 ),
                               ),
                             ),
-
-                            // Sunlight Pill
                             Container(
                               padding: EdgeInsets.symmetric(
                                 horizontal: isTablet ? 14 : (isSmallScreen ? 10 : 10),
@@ -962,20 +914,19 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
 
                         SizedBox(height: isTablet ? 12 : (isSmallScreen ? 8 : 10)),
 
-                        // Second Row: Bathroom & Windows
+                        // Bathroom And Windows Pills
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            // Bathroom Pill
                             Container(
                               padding: EdgeInsets.symmetric(
                                 horizontal: isTablet ? 14 : (isSmallScreen ? 10 : 10),
                                 vertical: isTablet ? 8 : (isSmallScreen ? 5 : 5),
                               ),
                               decoration: BoxDecoration(
-                                color: hasBathroom ?
-                                const Color(0xFFE3F2FD) : // Light blue for attached
-                                const Color(0xFFF5F5F5), // Light grey for shared
+                                color: hasBathroom
+                                    ? const Color(0xFFE3F2FD)
+                                    : const Color(0xFFF5F5F5),
                                 borderRadius: BorderRadius.circular(isTablet ? 18 : 16),
                               ),
                               child: Text(
@@ -983,14 +934,12 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                                 style: GoogleFonts.quicksand(
                                   fontSize: isTablet ? 14 : (isSmallScreen ? 11 : 11),
                                   fontWeight: FontWeight.w700,
-                                  color: hasBathroom ?
-                                  const Color(0xFF2196F3) : // Blue for attached
-                                  const Color(0xFF757575), // Grey for shared
+                                  color: hasBathroom
+                                      ? const Color(0xFF2196F3)
+                                      : const Color(0xFF757575),
                                 ),
                               ),
                             ),
-
-                            // Windows Pill
                             Container(
                               padding: EdgeInsets.symmetric(
                                 horizontal: isTablet ? 14 : (isSmallScreen ? 10 : 10),
@@ -1014,7 +963,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
 
                         SizedBox(height: isTablet ? 20 : (isSmallScreen ? 12 : 16)),
 
-                        // Amenity Windows (Laundry, Wi-Fi, Parking, Security, Cleaning)
+                        // Amenity Icons
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
@@ -1058,7 +1007,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                           ],
                         ),
 
-                        // For small screens, show the last 2 windows in a second row
+                        // Extra Icons For Small Screens
                         if (isSmallScreen) ...[
                           SizedBox(height: 12),
                           Row(
@@ -1091,7 +1040,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
           ),
         ),
 
-        // Location Details Section (Simplified - Map + Open in Maps button only)
+        // Location Section
         SliverToBoxAdapter(
           child: _buildLocationSection(
             fullLocation: fullLocation,
@@ -1102,12 +1051,12 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
           ),
         ),
 
-        // Action Buttons - Chat and Book with Gradients
+        // Action Buttons Section
         SliverToBoxAdapter(
           child: _buildActionButtons(isSmallScreen, isTablet),
         ),
 
-        // Bottom spacing
+        // Bottom Spacing
         SliverToBoxAdapter(
           child: SizedBox(height: isTablet ? 20 : (isSmallScreen ? 15 : 20)),
         ),
@@ -1115,6 +1064,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
+  // Header With Drag Handle
   Widget _buildHeader(bool isSmallScreen, bool isTablet) {
     return Padding(
       padding: EdgeInsets.symmetric(
@@ -1123,7 +1073,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
       ),
       child: Column(
         children: [
-          // Drag handle
+          // Drag Handle
           Container(
             width: isTablet ? 50 : 40,
             height: 4,
@@ -1133,7 +1083,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
             ),
           ),
           SizedBox(height: isTablet ? 16 : (isSmallScreen ? 8 : 12)),
-          // Center aligned title
+          // Title
           Center(
             child: Text(
               "Room Details",
@@ -1149,7 +1099,10 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
-  Widget _buildMainImageSection(List<String> images, bool isSmallScreen, bool isTablet) {
+  // Main Image Section
+  Widget _buildMainImageSection(bool isSmallScreen, bool isTablet) {
+    final images = _images;
+
     if (images.isEmpty) {
       return Padding(
         padding: EdgeInsets.symmetric(horizontal: isTablet ? 24 : (isSmallScreen ? 16 : 20)),
@@ -1224,6 +1177,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                         ),
                       ),
                     ),
+                    // Image Count Badge
                     Positioned(
                       top: isTablet ? 16 : 10,
                       right: isTablet ? 16 : 10,
@@ -1253,7 +1207,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
           ),
         ),
 
-        // Near KU Gate Badge (if applicable)
+        // Near KU Gate Badge
         if (_isNearKU)
           Positioned(
             top: isTablet ? 16 : 10,
@@ -1288,7 +1242,9 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
-  Widget _buildThumbnailsSection(List<String> images, bool isSmallScreen, bool isTablet) {
+  // Thumbnails Section
+  Widget _buildThumbnailsSection(bool isSmallScreen, bool isTablet) {
+    final images = _images;
     final itemWidth = isTablet ? 80.0 : (isSmallScreen ? 60.0 : 70.0);
     final itemHeight = isTablet ? 80.0 : (isSmallScreen ? 60.0 : 70.0);
     final borderRadius = isTablet ? 14.0 : (isSmallScreen ? 10.0 : 12.0);
@@ -1310,6 +1266,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
+  // Centered Thumbnails For Few Images
   Widget _buildCenteredThumbnails(
       List<String> images,
       double itemWidth,
@@ -1371,6 +1328,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
+  // Scrollable Thumbnails For Many Images
   Widget _buildScrollableThumbnails(
       List<String> images,
       double itemWidth,
@@ -1432,6 +1390,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
+  // Full Screen Image Viewer
   Widget _buildFullImageViewer(bool isSmallScreen, bool isTablet) {
     final images = _images;
 
@@ -1440,7 +1399,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
         color: Colors.black.withOpacity(0.95),
         child: Column(
           children: [
-            // Header
+            // Header With Close Button
             SafeArea(
               child: Padding(
                 padding: EdgeInsets.symmetric(
@@ -1474,13 +1433,13 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                         color: Colors.white,
                       ),
                     ),
-                    SizedBox(width: 40), // For symmetry
+                    const SizedBox(width: 40), // For Symmetry
                   ],
                 ),
               ),
             ),
 
-            // Image Viewer
+            // Interactive Image Viewer
             Expanded(
               child: PageView.builder(
                 itemCount: images.length,
@@ -1518,7 +1477,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
               ),
             ),
 
-            // Thumbnails at bottom
+            // Bottom Thumbnails
             SafeArea(
               top: false,
               child: Padding(
@@ -1543,6 +1502,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
+  // Centered Bottom Thumbnails
   Widget _buildCenteredBottomThumbnails(List<String> images, bool isSmallScreen, bool isTablet) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -1588,6 +1548,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
+  // Scrollable Bottom Thumbnails
   Widget _buildScrollableBottomThumbnails(List<String> images, bool isSmallScreen, bool isTablet) {
     return ListView.builder(
       scrollDirection: Axis.horizontal,
@@ -1631,6 +1592,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
+  // Compact Specification Item
   Widget _buildCompactSpecItem(
       IconData icon,
       String title,
@@ -1669,6 +1631,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
+  // Amenity Window Icon
   Widget _buildAmenityWindow(IconData icon, String label, Color color, bool isSmallScreen, bool isTablet) {
     final size = isTablet ? 60.0 : (isSmallScreen ? 40.0 : 45.0);
     return Column(
@@ -1703,6 +1666,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
+  // Location Section With Map
   Widget _buildLocationSection({
     required String fullLocation,
     required dynamic latitude,
@@ -1719,7 +1683,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
 
     return Padding(
       padding: EdgeInsets.symmetric(
-        horizontal: isTablet ? 12 : (isSmallScreen ? 8 : 10), // Reduced horizontal padding
+        horizontal: isTablet ? 12 : (isSmallScreen ? 8 : 10),
         vertical: isTablet ? 12 : 8,
       ),
       child: Container(
@@ -1742,7 +1706,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Only "Location" header
+            // Location Header
             Padding(
               padding: const EdgeInsets.only(bottom: 16),
               child: Row(
@@ -1778,13 +1742,11 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
             ),
 
             if (hasCoordinates && destination != null) ...[
-              // LARGER Map Container with minimal margins
+              // Google Map Container
               Container(
-                height: isTablet ? 380 : (isSmallScreen ? 280 : 320), // Increased height
-                width: double.infinity, // Full width
+                height: isTablet ? 380 : (isSmallScreen ? 280 : 320),
+                width: double.infinity,
                 margin: EdgeInsets.only(
-                  left: 0,
-                  right: 0,
                   bottom: isTablet ? 16 : 12,
                 ),
                 decoration: BoxDecoration(
@@ -1800,7 +1762,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                   borderRadius: BorderRadius.circular(isTablet ? 14 : (isSmallScreen ? 10 : 12)),
                   child: Stack(
                     children: [
-                      // Google Map with full interactivity
+                      // Google Map
                       ValueListenableBuilder<MapType>(
                         valueListenable: _currentMapType,
                         builder: (context, mapType, _) {
@@ -1814,12 +1776,10 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                                 _mapController.complete(controller);
                               }
 
-                              // Draw polyline if not already drawn
                               if (_currentLatLng.value != null && !_polylineDrawn && destination != null) {
                                 _drawDirectPolyline();
                               }
 
-                              // Fit bounds to show both markers
                               if (_currentLatLng.value != null) {
                                 final bounds = LatLngBounds(
                                   southwest: LatLng(
@@ -1843,7 +1803,6 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                             },
                             polylines: _polylines.value,
                             markers: {
-                              // Destination marker (Red)
                               Marker(
                                 markerId: const MarkerId('destination'),
                                 position: destination,
@@ -1853,8 +1812,6 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                                   snippet: fullLocation,
                                 ),
                               ),
-
-                              // Current location marker (Green) - if available
                               if (_currentLatLng.value != null)
                                 Marker(
                                   markerId: const MarkerId('current_location'),
@@ -1874,20 +1831,17 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                             tiltGesturesEnabled: true,
                             mapType: mapType,
                             minMaxZoomPreference: const MinMaxZoomPreference(5, 20),
-                            onTap: (LatLng position) {
-                              // Allow tap interactions
-                            },
                           );
                         },
                       ),
 
-                      // Map Controls positioned far right
+                      // Map Controls
                       Positioned(
                         bottom: 12,
                         right: 8,
                         child: Column(
                           children: [
-                            // Satellite Button - Always shows satellite icon
+                            // Satellite Toggle Button
                             ValueListenableBuilder<MapType>(
                               valueListenable: _currentMapType,
                               builder: (context, mapType, _) {
@@ -1917,11 +1871,6 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                                     constraints: const BoxConstraints(
                                       minWidth: 36,
                                       minHeight: 36,
-                                    ),
-                                    style: IconButton.styleFrom(
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(25),
-                                      ),
                                     ),
                                   ),
                                 );
@@ -1953,11 +1902,6 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                                   minWidth: 36,
                                   minHeight: 36,
                                 ),
-                                style: IconButton.styleFrom(
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(25),
-                                  ),
-                                ),
                               ),
                             ),
                           ],
@@ -1969,7 +1913,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
               ),
             ],
 
-            // "Open in Google Maps" Button
+            // Open In Google Maps Button
             if (hasCoordinates) ...[
               SizedBox(height: isTablet ? 20 : (isSmallScreen ? 12 : 16)),
               Container(
@@ -2003,7 +1947,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                     size: isTablet ? 22 : 18,
                   ),
                   label: Text(
-                    "Open in Google Maps",
+                    "Open In Google Maps",
                     style: GoogleFonts.quicksand(
                       fontSize: isTablet ? 18 : (isSmallScreen ? 14 : 15),
                       fontWeight: FontWeight.w700,
@@ -2018,7 +1962,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
     );
   }
 
-// Update the chat button in _buildActionButtons method:
+  // Action Buttons (Chat And Book)
   Widget _buildActionButtons(bool isSmallScreen, bool isTablet) {
     return Padding(
       padding: EdgeInsets.symmetric(
@@ -2027,7 +1971,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
       ),
       child: Row(
         children: [
-          // Chat Button with Purple Gradient - UPDATED
+          // Chat With Owner Button
           Expanded(
             child: Container(
               height: isTablet ? 50 : (isSmallScreen ? 40 : 44),
@@ -2037,8 +1981,8 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
-                    Color(0xFF9C27B0), // Purple
-                    Color(0xFF7B1FA2), // Dark Purple
+                    Color(0xFF9C27B0),
+                    Color(0xFF7B1FA2),
                   ],
                 ),
                 boxShadow: [
@@ -2050,7 +1994,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                 ],
               ),
               child: ElevatedButton(
-                onPressed: _startChatWithOwner, // Updated to call new method
+                onPressed: _startChatWithOwner,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.transparent,
                   foregroundColor: Colors.white,
@@ -2069,7 +2013,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                     ),
                     SizedBox(width: isTablet ? 8 : (isSmallScreen ? 4 : 6)),
                     Text(
-                      "Chat with Owner",
+                      "Chat With Owner",
                       style: GoogleFonts.quicksand(
                         fontSize: isTablet ? 16 : (isSmallScreen ? 13 : 14),
                         fontWeight: FontWeight.w700,
@@ -2083,7 +2027,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
 
           SizedBox(width: isTablet ? 12 : (isSmallScreen ? 8 : 10)),
 
-          // Book Button with Dark Blue Gradient (disabled when room is requested)
+          // Book Room Button
           Expanded(
             child: Container(
               height: isTablet ? 50 : (isSmallScreen ? 40 : 44),
@@ -2094,12 +2038,12 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
                   end: Alignment.bottomRight,
                   colors: _isRoomRequested
                       ? [
-                    Colors.grey.shade400, // Grey when disabled
-                    Colors.grey.shade600, // Dark grey when disabled
+                    Colors.grey.shade400,
+                    Colors.grey.shade600,
                   ]
                       : [
-                    Color(0xFF1565C0), // Dark Blue
-                    Color(0xFF0D47A1), // Darker Blue
+                    Color(0xFF1565C0),
+                    Color(0xFF0D47A1),
                   ],
                 ),
                 boxShadow: [
@@ -2147,7 +2091,7 @@ class _RoomDetailsBottomSheetState extends State<RoomDetailsBottomSheet>
   }
 }
 
-// Modern Colors Palette (same as your card)
+// Modern Color Palette
 class ModernColors {
   static const Color primary = Color(0xFF007AFF);
   static const Color primaryDark = Color(0xFF0056CC);

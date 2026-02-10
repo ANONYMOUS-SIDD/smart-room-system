@@ -18,14 +18,12 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // ==============================
-  // STATE VARIABLES
-  // ==============================
+  // State Variables For Sorting And Filtering
   String _selectedSort = "Price";
   bool _isPriceAscending = true;
   bool _isDistanceAscending = true;
-  String? _currentUserSessionId; // Store current user's sessionId
-  bool _isLoadingSessionId = true; // Loading state for sessionId
+  String? _currentUserSessionId;
+  bool _isLoadingSessionId = true;
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -34,7 +32,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    print('🏠 HomeScreen initState - Starting sessionId fetch');
     _fetchCurrentUserSessionId();
   }
 
@@ -44,20 +41,17 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  // Refresh Room Data Stream
   void _refreshData() {
-    print('🔄 HomeScreen _refreshData called');
     _refreshController.add(true);
   }
 
-  // Fetch current user's sessionId from Firestore
+  // Fetch Current User Session ID From Firestore
   Future<void> _fetchCurrentUserSessionId() async {
-    print('🔍 Starting _fetchCurrentUserSessionId');
     try {
       final currentUser = _auth.currentUser;
-      print('👤 Current Firebase Auth user: ${currentUser?.uid}');
 
       if (currentUser == null) {
-        print('⚠️ No user logged in via Firebase Auth');
         setState(() {
           _isLoadingSessionId = false;
           _currentUserSessionId = null;
@@ -65,7 +59,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      print('📥 Fetching user document from Firestore: users/${currentUser.uid}');
       final userDoc = await _firestore
           .collection('User')
           .doc(currentUser.uid)
@@ -73,39 +66,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (userDoc.exists) {
         final userData = userDoc.data() as Map<String, dynamic>;
-        print('✅ User document found: ${userData.keys}');
 
-        // Debug: Print all fields to see what's available
-        print('📊 User data fields:');
-        userData.forEach((key, value) {
-          print('   $key: $value (${value.runtimeType})');
-        });
-
-        // Try both 'SessionId' and 'sessionId' field names
         final sessionId = userData['SessionId']?.toString() ??
             userData['sessionId']?.toString() ??
             userData['sessionID']?.toString() ??
             userData['SessionID']?.toString() ??
             '';
 
-        print('🔑 Extracted sessionId: "$sessionId" (length: ${sessionId.length})');
-
         setState(() {
           _currentUserSessionId = sessionId.isNotEmpty ? sessionId : null;
           _isLoadingSessionId = false;
         });
 
-        print('✅ SessionId fetch complete. Current user sessionId: "$_currentUserSessionId"');
-        _refreshData(); // Refresh the list once we have sessionId
+        _refreshData();
       } else {
-        print('❌ User document does not exist in Firestore');
         setState(() {
           _isLoadingSessionId = false;
           _currentUserSessionId = null;
         });
       }
     } catch (e) {
-      print('❌ Error fetching user sessionId: $e');
       setState(() {
         _isLoadingSessionId = false;
         _currentUserSessionId = null;
@@ -113,7 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Show sort options dialog
+  // Show Sort Options Bottom Sheet
   void _showSortOptionsDialog(BuildContext context, bool isSmallScreen) {
     final screenHeight = MediaQuery.of(context).size.height;
     final screenWidth = MediaQuery.of(context).size.width;
@@ -140,18 +120,17 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         constraints: BoxConstraints(
-          maxHeight: screenHeight * 0.45, // Slightly smaller height
+          maxHeight: screenHeight * 0.45,
         ),
         child: Padding(
           padding: EdgeInsets.symmetric(
             horizontal: isVerySmallScreen ? 12.0 : isSmallScreen ? 14.0 : 18.0,
-            vertical: isVerySmallScreen ? 8.0 : isSmallScreen ? 10.0 : 12.0, // Reduced vertical padding
+            vertical: isVerySmallScreen ? 8.0 : isSmallScreen ? 10.0 : 12.0,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
               Center(
                 child: Container(
                   width: isVerySmallScreen ? 32.0 : 40.0,
@@ -162,7 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
-              SizedBox(height: isVerySmallScreen ? 6.0 : 8.0), // Reduced spacing
+              SizedBox(height: isVerySmallScreen ? 6.0 : 8.0),
               Center(
                 child: Text(
                   'Sort Options',
@@ -174,9 +153,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
-              SizedBox(height: isVerySmallScreen ? 8.0 : 12.0), // Reduced spacing
-
-              // Sort Options - Smaller height
+              SizedBox(height: isVerySmallScreen ? 8.0 : 12.0),
               Expanded(
                 child: ListView(
                   shrinkWrap: true,
@@ -198,7 +175,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       isVerySmallScreen: isVerySmallScreen,
                       isSmallScreen: isSmallScreen,
                     ),
-                    SizedBox(height: isVerySmallScreen ? 4.0 : 6.0), // Reduced spacing
+                    SizedBox(height: isVerySmallScreen ? 4.0 : 6.0),
                     _buildCompactSortOption(
                       'Price: High to Low',
                       Icons.arrow_downward_rounded,
@@ -215,7 +192,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       isVerySmallScreen: isVerySmallScreen,
                       isSmallScreen: isSmallScreen,
                     ),
-                    SizedBox(height: isVerySmallScreen ? 4.0 : 6.0), // Reduced spacing
+                    SizedBox(height: isVerySmallScreen ? 4.0 : 6.0),
                     _buildCompactSortOption(
                       'Distance: Near to Far',
                       Icons.near_me_rounded,
@@ -232,7 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       isVerySmallScreen: isVerySmallScreen,
                       isSmallScreen: isSmallScreen,
                     ),
-                    SizedBox(height: isVerySmallScreen ? 4.0 : 6.0), // Reduced spacing
+                    SizedBox(height: isVerySmallScreen ? 4.0 : 6.0),
                     _buildCompactSortOption(
                       'Distance: Far to Near',
                       Icons.north_east_rounded,
@@ -249,9 +226,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       isVerySmallScreen: isVerySmallScreen,
                       isSmallScreen: isSmallScreen,
                     ),
-                    SizedBox(height: isVerySmallScreen ? 4.0 : 6.0), // Reduced spacing
+                    SizedBox(height: isVerySmallScreen ? 4.0 : 6.0),
                     _buildCompactSortOption(
-                      'Recent: Newest First', // Changed text
+                      'Recent: Newest First',
                       Icons.access_time_rounded,
                       Colors.orange,
                           () {
@@ -268,16 +245,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-              SizedBox(height: isVerySmallScreen ? 6.0 : 8.0), // Reduced spacing
-
-              // Close Button - Black
+              SizedBox(height: isVerySmallScreen ? 6.0 : 8.0),
               SizedBox(
                 width: double.infinity,
-                height: isVerySmallScreen ? 36.0 : isSmallScreen ? 40.0 : 44.0, // Smaller height
+                height: isVerySmallScreen ? 36.0 : isSmallScreen ? 40.0 : 44.0,
                 child: ElevatedButton(
                   onPressed: () => Navigator.pop(context),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black, // Black button
+                    backgroundColor: Colors.black,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(isVerySmallScreen ? 8.0 : 10.0),
@@ -301,6 +276,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Build Compact Sort Option Item
   Widget _buildCompactSortOption(
       String title,
       IconData icon,
@@ -310,8 +286,8 @@ class _HomeScreenState extends State<HomeScreen> {
         required bool isVerySmallScreen,
         required bool isSmallScreen,
       }) {
-    final iconSize = isVerySmallScreen ? 14.0 : isSmallScreen ? 16.0 : 18.0; // Smaller icons
-    final fontSize = isVerySmallScreen ? 12.0 : isSmallScreen ? 13.0 : 14.0; // Smaller font
+    final iconSize = isVerySmallScreen ? 14.0 : isSmallScreen ? 16.0 : 18.0;
+    final fontSize = isVerySmallScreen ? 12.0 : isSmallScreen ? 13.0 : 14.0;
 
     return Material(
       color: Colors.transparent,
@@ -320,8 +296,8 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10.0),
         child: Container(
-          padding: EdgeInsets.all(isVerySmallScreen ? 8.0 : isSmallScreen ? 10.0 : 12.0), // Reduced padding
-          height: isVerySmallScreen ? 44.0 : isSmallScreen ? 48.0 : 52.0, // Fixed smaller height
+          padding: EdgeInsets.all(isVerySmallScreen ? 8.0 : isSmallScreen ? 10.0 : 12.0),
+          height: isVerySmallScreen ? 44.0 : isSmallScreen ? 48.0 : 52.0,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10.0),
             border: Border.all(
@@ -333,8 +309,8 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Row(
             children: [
               Container(
-                width: isVerySmallScreen ? 32.0 : 36.0, // Smaller container
-                height: isVerySmallScreen ? 32.0 : 36.0, // Smaller container
+                width: isVerySmallScreen ? 32.0 : 36.0,
+                height: isVerySmallScreen ? 32.0 : 36.0,
                 decoration: BoxDecoration(
                   color: isSelected ? color : color.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8.0),
@@ -360,84 +336,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 Icon(
                   Icons.verified_rounded,
                   color: color,
-                  size: isVerySmallScreen ? 16.0 : isSmallScreen ? 18.0 : 20.0, // Smaller verified icon
+                  size: isVerySmallScreen ? 16.0 : isSmallScreen ? 18.0 : 20.0,
                 ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCompactFullWidthOption(
-      String title,
-      IconData icon,
-      Color color,
-      VoidCallback onTap, {
-        bool isSelected = false,
-        required bool isVerySmallScreen,
-        required bool isSmallScreen,
-      }) {
-    final iconSize = isVerySmallScreen ? 16.0 : isSmallScreen ? 18.0 : 20.0;
-    final containerHeight = isVerySmallScreen ? 44.0 : isSmallScreen ? 48.0 : 52.0;
-    final fontSize = isVerySmallScreen ? 13.0 : isSmallScreen ? 14.0 : 15.0;
-    final iconContainerSize = isVerySmallScreen ? 32.0 : isSmallScreen ? 36.0 : 40.0;
-    final padding = isVerySmallScreen ? 10.0 : isSmallScreen ? 12.0 : 14.0;
-
-    return Material(
-      borderRadius: BorderRadius.circular(10.0),
-      color: isSelected ? color.withOpacity(0.12) : const Color(0xFFF8FAFC),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10.0),
-        child: SizedBox(
-          height: containerHeight,
-          child: Container(
-            width: double.infinity,
-            padding: EdgeInsets.all(padding),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10.0),
-              border: Border.all(
-                color: isSelected ? color : Colors.transparent, // Only show border when selected
-                width: isSelected ? 1.5 : 0.0,
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: iconContainerSize,
-                  height: iconContainerSize,
-                  decoration: BoxDecoration(
-                    color: isSelected ? color : color.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(8.0),
-                  ),
-                  child: Icon(
-                    icon,
-                    color: isSelected ? Colors.white : color,
-                    size: iconSize,
-                  ),
-                ),
-                SizedBox(width: isVerySmallScreen ? 10.0 : 12.0),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: GoogleFonts.quicksand(
-                      fontSize: fontSize,
-                      fontWeight: FontWeight.w700,
-                      color: isSelected ? color : const Color(0xFF475569),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (isSelected)
-                  Icon(
-                    Icons.verified_rounded, // Changed to verified icon
-                    color: color,
-                    size: isVerySmallScreen ? 18.0 : isSmallScreen ? 20.0 : 22.0,
-                  ),
-              ],
-            ),
           ),
         ),
       ),
@@ -448,8 +349,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final isSmallScreen = screenWidth < 360;
-
-    print('🏠 HomeScreen build - isLoadingSessionId: $_isLoadingSessionId, currentUserSessionId: "$_currentUserSessionId"');
 
     return Scaffold(
       backgroundColor: ModernColors.background,
@@ -467,11 +366,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: StreamBuilder<bool>(
           stream: Stream<bool>.value(true).asyncExpand((_) => _refreshController.stream),
           builder: (context, refreshSnapshot) {
-            print('🔄 StreamBuilder refreshSnapshot: ${refreshSnapshot.connectionState}');
-
-            // Show shimmer loading while fetching sessionId
             if (_isLoadingSessionId) {
-              print('⏳ Showing shimmer loading while fetching sessionId');
               return _buildShimmerLoading(isSmallScreen);
             }
 
@@ -481,15 +376,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   .orderBy('createdAt', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
-                print('📊 Room StreamBuilder state: ${snapshot.connectionState}, hasData: ${snapshot.hasData}, hasError: ${snapshot.hasError}');
-
                 if (snapshot.hasError) {
-                  print('❌ Error loading rooms: ${snapshot.error}');
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(20.0),
                       child: Text(
-                        'Error loading rooms',
+                        'Error Loading Rooms',
                         style: GoogleFonts.quicksand(
                           fontSize: 16,
                           color: Colors.red.shade600,
@@ -502,37 +394,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 if (snapshot.connectionState == ConnectionState.waiting &&
                     !snapshot.hasData) {
-                  print('⏳ Showing shimmer loading for room data');
                   return _buildShimmerLoading(isSmallScreen);
                 }
 
                 final rooms = snapshot.data?.docs ?? [];
-                print('🏘️ Total rooms from Firestore: ${rooms.length}');
-
-                // Debug: Print first room's data
-                if (rooms.isNotEmpty) {
-                  final firstRoom = rooms.first.data() as Map<String, dynamic>;
-                  print('🔍 First room keys: ${firstRoom.keys}');
-                  print('🔍 First room SessionId/sessionId: ${firstRoom['SessionId'] ?? firstRoom['sessionId']}');
-                }
-
                 final filteredRooms = _applyFiltersAndSort(rooms);
-                print('✅ After filtering: ${filteredRooms.length} rooms (filtered out ${rooms.length - filteredRooms.length})');
 
-                // If no rooms found, show empty state
                 if (filteredRooms.isEmpty) {
-                  print('📭 No rooms found after filtering');
                   return _buildNoRoomsFound(rooms.length);
                 }
 
                 return ListView(
                   children: [
-                    // Sort Button Container
                     _buildSortContainer(isSmallScreen),
-
                     SizedBox(height: isSmallScreen ? 16.0 : 20.0),
-
-                    // Results Title with reduced gap to cards
                     Padding(
                       padding: EdgeInsets.symmetric(
                         horizontal: isSmallScreen ? 16.0 : 20.0,
@@ -560,19 +435,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
-
                     SizedBox(height: isSmallScreen ? 12.0 : 16.0),
-
-                    // Room Cards from Firestore with staggered animation
                     ...filteredRooms.asMap().entries.map((entry) {
                       final index = entry.key;
                       final roomDoc = entry.value;
                       final room = roomDoc.data() as Map<String, dynamic>;
-
-                      // Debug: Print room details for first few rooms
-                      if (index < 3) {
-                        print('🏠 Room $index - ID: ${roomDoc.id}, SessionId: ${room['SessionId'] ?? room['sessionId']}, Owner matches current user: ${_currentUserSessionId != null ? (room['SessionId'] == _currentUserSessionId || room['sessionId'] == _currentUserSessionId) : 'N/A'}');
-                      }
 
                       return FadeInWidget(
                         delay: Duration(milliseconds: 100 + (index * 100)),
@@ -584,7 +451,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       );
                     }).toList(),
-
                     const SizedBox(height: 40.0),
                   ],
                 );
@@ -596,11 +462,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Build Empty State When No Rooms Available
   Widget _buildNoRoomsFound(int totalRooms) {
-    // Check if there are rooms but all are filtered out because they belong to the user
     final hasUserRooms = totalRooms > 0 && _currentUserSessionId != null;
-
-    print('📭 _buildNoRoomsFound - totalRooms: $totalRooms, hasUserRooms: $hasUserRooms, currentUserSessionId: "$_currentUserSessionId"');
 
     return Center(
       child: Padding(
@@ -625,8 +489,8 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 12.0),
             Text(
               hasUserRooms
-                  ? 'All available rooms are uploaded by you.\nCheck back later for rooms from other users.'
-                  : 'Check back later for new listings',
+                  ? 'All Available Rooms Are Uploaded By You.\nCheck Back Later For Rooms From Other Users.'
+                  : 'Check Back Later For New Listings',
               style: GoogleFonts.quicksand(
                 fontSize: 15.0,
                 color: ModernColors.onSurfaceVariant,
@@ -634,60 +498,28 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               textAlign: TextAlign.center,
             ),
-            if (_currentUserSessionId != null) ...[
-              const SizedBox(height: 20.0),
-              Text(
-                'Debug: Your SessionId: "$_currentUserSessionId"',
-                style: GoogleFonts.quicksand(
-                  fontSize: 12.0,
-                  color: Colors.grey,
-                  fontWeight: FontWeight.w500,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
           ],
         ),
       ),
     );
   }
 
+  // Apply Filters And Sorting To Room List
   List<DocumentSnapshot> _applyFiltersAndSort(List<DocumentSnapshot> rooms) {
-    print('🔍 Starting _applyFiltersAndSort with ${rooms.length} rooms');
-    print('👤 Current user sessionId: "$_currentUserSessionId"');
-
     List<DocumentSnapshot> filtered = List.from(rooms);
 
-    // Debug: Print all rooms before filtering
-    print('📋 Rooms before filtering:');
-    for (var i = 0; i < rooms.length; i++) {
-      final room = rooms[i].data() as Map<String, dynamic>;
-      final sessionId = room['SessionId']?.toString() ?? room['sessionId']?.toString() ?? 'No sessionId';
-      final status = room['status']?.toString() ?? 'No status';
-      print('   Room $i: status="$status", sessionId="$sessionId"');
-    }
-
-    // Filter out rooms with status "Booked"
+    // Filter Out Booked Rooms
     filtered = filtered.where((doc) {
       final room = doc.data() as Map<String, dynamic>;
       final status = room['status']?.toString() ?? '';
-      final isBooked = status.toLowerCase() == 'booked';
-      if (isBooked) {
-        print('   ❌ Filtering out room (Booked): status="$status"');
-      }
-      return !isBooked;
+      return status.toLowerCase() != 'booked';
     }).toList();
 
-    print('✅ After booked filter: ${filtered.length} rooms');
-
-    // Filter out rooms uploaded by current user (where SessionId matches)
+    // Filter Out Current User's Rooms
     if (_currentUserSessionId != null && _currentUserSessionId!.isNotEmpty) {
-      print('🔑 Filtering by sessionId: "$_currentUserSessionId"');
-
       filtered = filtered.where((doc) {
         final room = doc.data() as Map<String, dynamic>;
 
-        // Try multiple possible field names
         final List<String> possibleSessionIdFields = [
           'SessionId',
           'sessionId',
@@ -707,28 +539,12 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         }
 
-        final matchesCurrentUser = roomSessionId == _currentUserSessionId;
-
-        if (roomSessionId.isEmpty) {
-          print('   ⚠️ Room has no sessionId field, keeping it');
-          return true; // Keep rooms without sessionId (might be from other users)
-        }
-
-        if (matchesCurrentUser) {
-          print('   ❌ Filtering out room (Owned by current user): roomSessionId="$roomSessionId", currentUserSessionId="$_currentUserSessionId"');
-          return false;
-        } else {
-          print('   ✅ Keeping room: roomSessionId="$roomSessionId", currentUserSessionId="$_currentUserSessionId"');
-          return true;
-        }
+        if (roomSessionId.isEmpty) return true;
+        return roomSessionId != _currentUserSessionId;
       }).toList();
-    } else {
-      print('⚠️ No currentUserSessionId available, skipping owner filter');
     }
 
-    print('✅ After owner filter: ${filtered.length} rooms');
-
-    // Apply sorting
+    // Apply Sorting Based On Selected Criteria
     filtered.sort((a, b) {
       final roomA = a.data() as Map<String, dynamic>;
       final roomB = b.data() as Map<String, dynamic>;
@@ -756,33 +572,28 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     });
 
-    print('✅ Final filtered rooms: ${filtered.length}');
     return filtered;
   }
 
+  // Parse Distance String To Double
   double _parseDistance(dynamic distance) {
     if (distance == null) return 0.0;
 
-    String distanceStr;
     if (distance is String) {
-      distanceStr = distance;
+      try {
+        final match = RegExp(r'([0-9.]+)').firstMatch(distance);
+        if (match != null) return double.parse(match.group(1)!);
+      } catch (e) {
+        return 0.0;
+      }
     } else if (distance is int || distance is double) {
       return distance.toDouble();
-    } else {
-      return 0.0;
     }
 
-    try {
-      final match = RegExp(r'([0-9.]+)').firstMatch(distanceStr);
-      if (match != null) {
-        return double.parse(match.group(1)!);
-      }
-    } catch (e) {
-      return 0.0;
-    }
     return 0.0;
   }
 
+  // Build Sort Container With Current Selection
   Widget _buildSortContainer(bool isSmallScreen) {
     return Container(
       margin: EdgeInsets.symmetric(horizontal: isSmallScreen ? 16.0 : 20.0, vertical: 8.0),
@@ -860,6 +671,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Get Display Text For Current Sort Selection
   String _getSortDisplayText() {
     switch (_selectedSort) {
       case "Price":
@@ -873,6 +685,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Build Shimmer Loading Placeholder
   Widget _buildShimmerLoading(bool isSmallScreen) {
     return ListView(
       children: [
@@ -938,7 +751,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         SizedBox(height: isSmallScreen ? 1.0 : 16.0),
-        // Shimmer cards with staggered animation
         ...List.generate(3, (index) {
           return FadeInWidget(
             delay: Duration(milliseconds: 100 + (index * 100)),
@@ -1122,9 +934,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ==============================
-// FADE IN WIDGET FOR STAGGERED ANIMATIONS
-// ==============================
+// Fade In Widget For Staggered Animations
 class FadeInWidget extends StatefulWidget {
   final Widget child;
   final Duration delay;
@@ -1200,9 +1010,7 @@ class _FadeInWidgetState extends State<FadeInWidget> with SingleTickerProviderSt
   }
 }
 
-// ==============================
-// COMPACT ROOM CARD FROM FIRESTORE
-// ==============================
+// Compact Room Card From Firestore
 class CompactRoomCardFromFirestore extends StatefulWidget {
   final Map<String, dynamic> room;
   final String roomDocumentId;
@@ -1271,8 +1079,6 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
         });
         widget.onStatusUpdate?.call();
       }
-    }, onError: (error) {
-      debugPrint("Error listening to room updates: $error");
     });
   }
 
@@ -1284,7 +1090,6 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
         _isLoadingStatus = false;
       });
     } catch (e) {
-      debugPrint("Error checking room status: $e");
       setState(() {
         _isLoadingStatus = false;
       });
@@ -1321,7 +1126,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
     final priceNPR = widget.room['price'] is int ? widget.room['price'] as int : int.tryParse(widget.room['price']?.toString() ?? '0') ?? 0;
     final distance = _getFormattedDistance();
     final internetSpeed = "${widget.room['internet']?.toString() ?? '0'} Mbps";
-    final fullLocation = widget.room['location']?.toString() ?? "Location not specified";
+    final fullLocation = widget.room['location']?.toString() ?? "Location Not Specified";
 
     return Container(
       margin: EdgeInsets.symmetric(
@@ -1402,7 +1207,6 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
                 ),
             ],
           ),
-
           Padding(
             padding: EdgeInsets.all(widget.isSmallScreen ? 12.0 : 16.0),
             child: Column(
@@ -1515,9 +1319,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
                       ),
                   ],
                 ),
-
                 SizedBox(height: widget.isSmallScreen ? 10.0 : 12.0),
-
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -1559,9 +1361,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
                     ),
                   ],
                 ),
-
                 SizedBox(height: widget.isSmallScreen ? 12.0 : 14.0),
-
                 Container(
                   padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 4.0),
                   decoration: BoxDecoration(
@@ -1605,9 +1405,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
                     ],
                   ),
                 ),
-
                 SizedBox(height: widget.isSmallScreen ? 12.0 : 14.0),
-
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -1833,7 +1631,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
   }
 }
 
-// Modern Colors Palette
+// Modern Color Palette
 class ModernColors {
   static const Color primary = Color(0xFF007AFF);
   static const Color primaryDark = Color(0xFF0056CC);

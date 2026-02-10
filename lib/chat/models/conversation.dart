@@ -1,4 +1,3 @@
-// lib/chat/models/conversation.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class Conversation {
@@ -26,10 +25,11 @@ class Conversation {
     required this.updatedAt,
   });
 
+  // Creates Conversation From Firestore Document
   factory Conversation.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     return Conversation(
-      conversationId: doc.id, // Use document ID as conversationId
+      conversationId: doc.id,
       user1Id: data['user1Id']?.toString() ?? '',
       user2Id: data['user2Id']?.toString() ?? '',
       lastMessage: data['lastMessage']?.toString() ?? '',

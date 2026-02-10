@@ -1,4 +1,3 @@
-/// User Data Model Representing Application User
 class UserModel {
   final String id;
   final String name;
@@ -7,10 +6,25 @@ class UserModel {
   final String sessionId;
   final String profilePath;
 
-  UserModel({required this.id, required this.name, required this.phone, required this.email, required this.sessionId, required this.profilePath});
+  UserModel({
+    required this.id,
+    required this.name,
+    required this.phone,
+    required this.email,
+    required this.sessionId,
+    required this.profilePath,
+  });
 
-  /// Convert User Model To Firestore Map
+  // Converts User Model To Firestore Compatible Map Format
   Map<String, dynamic> toFirestoreMap() {
-    return {'id': id, 'Name': name, 'Phone': phone, 'Email': email, 'SessionId': sessionId, 'Path': profilePath, 'createdAt': DateTime.now()};
+    return {
+      'id': id,
+      'Name': name,
+      'Phone': phone,
+      'Email': email,
+      'SessionId': sessionId,
+      'Path': profilePath,
+      'createdAt': DateTime.now(),
+    };
   }
 }

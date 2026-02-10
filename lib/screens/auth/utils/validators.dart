@@ -1,6 +1,7 @@
-/// Collection Of Validation Functions For Form Input Fields
+/// AUTHENTICATION FORM VALIDATION UTILITY CLASS FOR INPUT FIELD VALIDATION
 class AuthValidators {
-  /// Validate Full Name Input
+
+  /// VALIDATE FULL NAME INPUT FOR PROPER FORMAT AND LENGTH
   static String? validateFullName(String? value) {
     if (value == null || value.isEmpty) {
       return "Please Enter Your Full Name";
@@ -14,18 +15,27 @@ class AuthValidators {
     return null;
   }
 
-  /// Validate Nepali Phone Number Format
+  /// VALIDATE NEPALI PHONE NUMBER FOR CORRECT FORMAT AND STARTING DIGITS
   static String? validateNepaliPhone(String? value) {
     if (value == null || value.isEmpty) {
       return "Please Enter Your Phone Number";
     }
-    if (value.length != 10 || (!value.startsWith('98') && !value.startsWith('97'))) {
-      return "Please Enter A Valid Phone Number";
+
+    // REMOVE ANY SPACES OR SPECIAL CHARACTERS FOR VALIDATION
+    final cleanedValue = value.replaceAll(RegExp(r'[^0-9]'), '');
+
+    if (cleanedValue.length != 10) {
+      return "Phone Number Must Be Exactly 10 Digits";
     }
+
+    if (!cleanedValue.startsWith('97') && !cleanedValue.startsWith('98')) {
+      return "Phone Number Must Start With 97 Or 98";
+    }
+
     return null;
   }
 
-  /// Validate Email Address Format
+  /// VALIDATE EMAIL ADDRESS FOR STANDARD EMAIL FORMAT COMPLIANCE
   static String? validateEmail(String? value) {
     if (value == null || value.isEmpty) {
       return "Please Enter Your Email Address";
@@ -36,7 +46,7 @@ class AuthValidators {
     return null;
   }
 
-  /// Validate Password Strength And Requirements
+  /// VALIDATE PASSWORD FOR MINIMUM SECURITY REQUIREMENTS AND COMPLEXITY
   static String? validatePassword(String? value) {
     if (value == null || value.isEmpty) {
       return "Please Enter A Password";
@@ -45,12 +55,12 @@ class AuthValidators {
       return "Password Must Be At Least 8 Characters";
     }
     if (!RegExp(r'^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]+$').hasMatch(value)) {
-      return "Use Both Letters And Numbers";
+      return "Password Must Contain Both Letters And Numbers";
     }
     return null;
   }
 
-  /// Validate Confirm Password Matches Original Password
+  /// VALIDATE CONFIRMATION PASSWORD MATCHES ORIGINAL PASSWORD INPUT
   static String? validateConfirmPassword(String? value, String originalPassword) {
     if (value == null || value.isEmpty) {
       return "Please Confirm Your Password";

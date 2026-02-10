@@ -8,7 +8,7 @@ import '../owner/owner_screen.dart';
 import '../user/profile_screen.dart';
 
 /// Main Screen Container With Persistent Bottom Navigation Bar
-/// Houses Primary Application Tabs: Home, Pending, History, And Profile
+/// Houses Primary Application Tabs: Home, Dashboard, Chat, And Profile
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -20,19 +20,21 @@ class _MainScreenState extends State<MainScreen> {
   final PersistentTabController _controller = PersistentTabController(initialIndex: 0);
 
   /// Build Screen Widgets For Each Navigation Tab
+  /// Returns List Of Widgets Corresponding To Bottom Navigation Tabs
   List<Widget> _buildScreens() {
     return [
-      const HomeScreen(), // Home Tab - Product Management
-      OwnerScreen(), // Pending Tab - Credit Sales Management
-      chat.ChatHomeScreen(), // History Tab - Completed Sales Records
-      const ProfileScreen(), // Profile Tab - User Account Management
+      const HomeScreen(), // Home Tab - Room Discovery And Browsing
+      OwnerScreen(), // Dashboard Tab - Room Owner Management Interface
+      chat.ChatHomeScreen(), // Chat Tab - Real-Time Messaging Platform
+      const ProfileScreen(), // Profile Tab - User Account And Settings Management
     ];
   }
 
   /// Build Navigation Bar Items With Consistent Styling
+  /// Defines Icons, Titles, And Colors For Each Tab
   List<PersistentBottomNavBarItem> _navBarsItems() {
-    const activeColor = Colors.pink; // Active Tab Color
-    const inactiveColor = Color(0xFF6B7280); // Inactive Tab Color
+    const Color activeColor = Colors.pink; // Active Tab Color
+    const Color inactiveColor = Color(0xFF6B7280); // Inactive Tab Color
 
     return [
       PersistentBottomNavBarItem(
@@ -66,7 +68,6 @@ class _MainScreenState extends State<MainScreen> {
     ];
   }
 
-
   @override
   Widget build(BuildContext context) {
     return PersistentTabView(
@@ -77,7 +78,7 @@ class _MainScreenState extends State<MainScreen> {
       navBarStyle: NavBarStyle.style1, // Classic Bottom Navigation Style
       backgroundColor: Colors.white, // White Navigation Bar Background
       resizeToAvoidBottomInset: true, // Adjust For On-Screen Keyboard
-      stateManagement: true, // Maintain Tab State
+      stateManagement: true, // Maintain Tab State During Navigation
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4), // Compact Padding
       decoration: NavBarDecoration(
         border: const Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 1)), // Top Border
@@ -85,7 +86,7 @@ class _MainScreenState extends State<MainScreen> {
           BoxShadow(
             color: Colors.black.withOpacity(0.2),
             blurRadius: 12,
-            offset: const Offset(0, -3), // Top Shadow For Depth
+            offset: const Offset(0, -3), // Top Shadow For Visual Depth
           ),
         ],
       ),
@@ -93,10 +94,10 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-
-/// Temporary Chat Tab Screen - Will be replaced with actual chat
+/// Temporary Chat Tab Screen - Will Be Replaced With Actual Chat Implementation
+/// Placeholder Interface For Chat Feature Display
 class ChatTabScreen extends StatelessWidget {
-  ChatTabScreen({super.key});
+  const ChatTabScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -135,7 +136,7 @@ class ChatTabScreen extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              'Message room owners from room details',
+              'Message Room Owners From Room Details',
               style: GoogleFonts.quicksand(
                 fontSize: 14,
                 color: Colors.grey[600],

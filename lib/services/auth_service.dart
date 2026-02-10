@@ -5,35 +5,46 @@ import 'package:get/get.dart';
 import '../models/user_model.dart';
 import 'toast_service.dart';
 
-/// Service Handling All Authentication Related Operations
 class AuthService extends GetxService {
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final ToastService _toastService = ToastService();
 
-  /// Create New User Account With Email And Password
-  Future<User?> createUserWithEmailAndPassword({required String email, required String password, required String fullName, required String phone}) async {
+  // Creates New User Account With Email Password And User Details
+  Future<User?> createUserWithEmailAndPassword({
+    required String email,
+    required String password,
+    required String fullName,
+    required String phone,
+  }) async {
     try {
-      // Check If Email Already Exists In Firestore
-      final emailQuery = await _firestore.collection('User').where('Email', isEqualTo: email.trim()).get();
+      final emailQuery = await _firestore
+          .collection('User')
+          .where('Email', isEqualTo: email.trim())
+          .get();
 
       if (emailQuery.docs.isNotEmpty) {
         _toastService.showErrorMessage("Email Already Exists");
         return null;
       }
 
-      // Create User In Firebase Authentication
-      final userCredential = await _firebaseAuth.createUserWithEmailAndPassword(email: email.trim(), password: password.trim());
+      final userCredential = await _firebaseAuth.createUserWithEmailAndPassword(
+        email: email.trim(),
+        password: password.trim(),
+      );
 
       final User? user = userCredential.user;
       if (user == null) {
         throw Exception("User Creation Failed");
       }
 
-      // Create User Document In Firestore
-      await _createUserDocument(userId: user.uid, fullName: fullName, phone: phone, email: email);
+      await _createUserDocument(
+        userId: user.uid,
+        fullName: fullName,
+        phone: phone,
+        email: email,
+      );
 
-      // Send Email Verification
       await user.sendEmailVerification();
 
       _toastService.showSuccessMessage("Account Created Successfully!");
@@ -47,10 +58,16 @@ class AuthService extends GetxService {
     }
   }
 
-  /// Sign In Existing User With Email And Password
-  Future<User?> signInWithEmailAndPassword({required String email, required String password}) async {
+  // Authenticates Existing User With Email And Password
+  Future<User?> signInWithEmailAndPassword({
+    required String email,
+    required String password,
+  }) async {
     try {
-      final userCredential = await _firebaseAuth.signInWithEmailAndPassword(email: email.trim(), password: password.trim());
+      final userCredential = await _firebaseAuth.signInWithEmailAndPassword(
+        email: email.trim(),
+        password: password.trim(),
+      );
 
       return userCredential.user;
     } on FirebaseAuthException catch (error) {
@@ -62,7 +79,7 @@ class AuthService extends GetxService {
     }
   }
 
-  /// Send Password Reset Email
+  // Sends Password Reset Email To Provided Email Address
   Future<bool> sendPasswordResetEmail(String email) async {
     try {
       await _firebaseAuth.sendPasswordResetEmail(email: email.trim());
@@ -76,14 +93,26 @@ class AuthService extends GetxService {
     }
   }
 
-  /// Create User Document In Firestore Database
-  Future<void> _createUserDocument({required String userId, required String fullName, required String phone, required String email}) async {
-    final userModel = UserModel(id: DateTime.now().microsecondsSinceEpoch.toString(), name: fullName.trim(), phone: phone.trim(), email: email.trim(), sessionId: userId, profilePath: "https://firebasestorage.googleapis.com/v0/b/online-2cdb1.appspot.com/o/1707049056458970?alt=media&token=2bcfcd4d-c2e1-4795-a064-312d5265eb21");
+  // Creates User Document In Firestore With Provided Details
+  Future<void> _createUserDocument({
+    required String userId,
+    required String fullName,
+    required String phone,
+    required String email,
+  }) async {
+    final userModel = UserModel(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      name: fullName.trim(),
+      phone: phone.trim(),
+      email: email.trim(),
+      sessionId: userId,
+      profilePath: "https://firebasestorage.googleapis.com/v0/b/online-2cdb1.appspot.com/o/1707049056458970?alt=media&token=2bcfcd4d-c2e1-4795-a064-312d5265eb21",
+    );
 
     await _firestore.collection("User").doc(userId).set(userModel.toFirestoreMap());
   }
 
-  /// Handle Firebase Authentication Errors For Signup
+  // Handles Firebase Authentication Errors During User Registration
   void _handleFirebaseAuthError(FirebaseAuthException error) {
     switch (error.code) {
       case "network-request-failed":
@@ -109,7 +138,7 @@ class AuthService extends GetxService {
     }
   }
 
-  /// Handle Firebase Authentication Errors For Login
+  // Handles Firebase Authentication Errors During User Login
   void _handleLoginFirebaseAuthError(FirebaseAuthException error) {
     switch (error.code) {
       case "network-request-failed":
@@ -135,7 +164,7 @@ class AuthService extends GetxService {
     }
   }
 
-  /// Handle Password Reset Errors
+  // Handles Password Reset Related Firebase Authentication Errors
   void _handlePasswordResetError(FirebaseAuthException error) {
     switch (error.code) {
       case "invalid-email":
@@ -152,21 +181,21 @@ class AuthService extends GetxService {
     }
   }
 
-  /// Sign Out Current User
+  // Signs Out Currently Authenticated User
   Future<void> signOut() async {
     await _firebaseAuth.signOut();
   }
 
-  /// Get Current User
+  // Returns Currently Authenticated Firebase User
   User? get currentUser => _firebaseAuth.currentUser;
 
-  /// Check If User Is Logged In
+  // Checks If Any User Is Currently Logged In
   bool get isLoggedIn => _firebaseAuth.currentUser != null;
 
-  /// Check If User Email Is Verified
+  // Checks If Current User's Email Is Verified
   bool get isEmailVerified => _firebaseAuth.currentUser?.emailVerified ?? false;
 
-  /// Send Email Verification
+  // Sends Email Verification To Current User
   Future<void> sendEmailVerification() async {
     final user = _firebaseAuth.currentUser;
     if (user != null && !user.emailVerified) {
@@ -174,13 +203,20 @@ class AuthService extends GetxService {
     }
   }
 
-  /// Get User Data From Firestore
+  // Retrieves User Data From Firestore Using User ID
   Future<UserModel?> getUserData(String userId) async {
     try {
       final doc = await _firestore.collection('User').doc(userId).get();
       if (doc.exists) {
         final data = doc.data()!;
-        return UserModel(id: data['id'] ?? '', name: data['Name'] ?? '', phone: data['Phone'] ?? '', email: data['Email'] ?? '', sessionId: data['SessionId'] ?? '', profilePath: data['Path'] ?? '');
+        return UserModel(
+          id: data['id'] ?? '',
+          name: data['Name'] ?? '',
+          phone: data['Phone'] ?? '',
+          email: data['Email'] ?? '',
+          sessionId: data['SessionId'] ?? '',
+          profilePath: data['Path'] ?? '',
+        );
       }
       return null;
     } catch (error) {
@@ -188,8 +224,12 @@ class AuthService extends GetxService {
     }
   }
 
-  /// Update User Profile
-  Future<void> updateUserProfile({String? name, String? phone, String? profilePath}) async {
+  // Updates User Profile Information In Firestore
+  Future<void> updateUserProfile({
+    String? name,
+    String? phone,
+    String? profilePath,
+  }) async {
     try {
       final user = _firebaseAuth.currentUser;
       if (user == null) return;

@@ -14,16 +14,15 @@ import '../auth/widgets/auth_buttons.dart';
 import '../auth/widgets/auth_header.dart';
 import '../auth/widgets/input_container.dart';
 import '../auth/widgets/input_fields.dart';
-import '../home/home_screen.dart';
 import '../main/main_screen.dart';
 import 'signup_screen.dart';
 
-/// User Login Screen For Existing Account Authentication
+/// LOGIN SCREEN FOR EXISTING USER AUTHENTICATION WITH EMAIL AND PASSWORD
 class LoginScreen extends StatelessWidget {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-
   final GlobalKey<FormState> formKey = GlobalKey<FormState>();
+
   final AuthService authService = Get.find<AuthService>();
   final LoaderController loaderController = Get.find<LoaderController>();
   final ShowPasswordController showPasswordController = Get.find<ShowPasswordController>();
@@ -32,35 +31,31 @@ class LoginScreen extends StatelessWidget {
 
   LoginScreen({Key? key}) : super(key: key);
 
-  /// Handle User Login Process
+  /// EXECUTE USER LOGIN PROCESS WITH FORM VALIDATION AND AUTHENTICATION
   Future<void> _handleLogin() async {
-    if (!formKey.currentState!.validate()) {
-      return;
-    }
+    if (!formKey.currentState!.validate()) return;
 
     loaderController.startLoading();
-
-    final user = await authService.signInWithEmailAndPassword(email: emailController.text.trim(), password: passwordController.text.trim());
+    final user = await authService.signInWithEmailAndPassword(
+      email: emailController.text.trim(),
+      password: passwordController.text.trim(),
+    );
+    loaderController.stopLoading();
 
     if (user != null) {
       authController.initializeUserSession();
       toastService.showSuccessMessage("Login Successful!");
-      // Navigate to home screen after successful login
       Get.offAll(() => MainScreen());
     }
-
-    loaderController.stopLoading();
   }
 
-  /// Handle Forgot Password Request
+  /// INITIATE PASSWORD RESET PROCESS WITH EMAIL VALIDATION
   Future<void> _handleForgotPassword() async {
-    // Check if email field is empty
     if (emailController.text.isEmpty) {
       toastService.showErrorMessage("Enter Email To Reset Password");
       return;
     }
 
-    // Validate email format
     final emailError = AuthValidators.validateEmail(emailController.text.trim());
     if (emailError != null) {
       toastService.showErrorMessage("Enter Valid Email To Reset Password");
@@ -68,9 +63,7 @@ class LoginScreen extends StatelessWidget {
     }
 
     loaderController.startLoading();
-
     final success = await authService.sendPasswordResetEmail(emailController.text.trim());
-
     loaderController.stopLoading();
 
     if (success) {
@@ -91,21 +84,17 @@ class LoginScreen extends StatelessWidget {
         key: formKey,
         child: Stack(
           children: [
-            // Background Gradients
             ...AuthUtils.buildBackgroundGradients(context),
-
-            // Main Content Column
             Column(
               children: [
-                // Header Section (Increased Height)
                 AuthHeader(
-                  height: screenHeight * 0.38, // Increased height
+                  height: screenHeight * 0.38,
                   animationPath: 'assets/images/lock_animation.json',
                   backgroundImagePath: 'assets/images/auth_background.jpg',
                 ),
-
-                // Form Section
-                Expanded(child: _buildFormSection(context, screenHeight, screenWidth, bottomInset)),
+                Expanded(
+                  child: _buildFormSection(context, screenHeight, screenWidth, bottomInset),
+                ),
               ],
             ),
           ],
@@ -114,44 +103,54 @@ class LoginScreen extends StatelessWidget {
     );
   }
 
-  /// Build The Main Form Section With Rounded Container
+  /// CONSTRUCT FORM SECTION WITH ROUNDED CONTAINER AND CONTENT LAYOUT
   Widget _buildFormSection(BuildContext context, double height, double width, double bottomInset) {
     return Stack(
       children: [
-        // Background Container
         Container(
           width: double.infinity,
           decoration: const BoxDecoration(
             color: AppColors.backgroundColor,
-            borderRadius: BorderRadius.only(topLeft: Radius.circular(32), topRight: Radius.circular(32)),
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(32),
+              topRight: Radius.circular(32),
+            ),
           ),
         ),
-
-        // Form Content (Increased overlap)
         Transform.translate(
           offset: const Offset(0, -35),
           child: Container(
             width: double.infinity,
             decoration: BoxDecoration(
               color: AppColors.backgroundColor,
-              borderRadius: const BorderRadius.only(topLeft: Radius.circular(32), topRight: Radius.circular(32)),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 25, offset: const Offset(0, -8))],
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(32),
+                topRight: Radius.circular(32),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 25,
+                  offset: const Offset(0, -8),
+                ),
+              ],
             ),
             child: Container(
               margin: const EdgeInsets.only(top: 20),
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
-                padding: EdgeInsets.fromLTRB(width * 0.04, height * 0.02, width * 0.04, bottomInset),
+                padding: EdgeInsets.fromLTRB(
+                  width * 0.04,
+                  height * 0.02,
+                  width * 0.04,
+                  bottomInset,
+                ),
                 keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                 child: Column(
                   children: [
-                    // Title with Icon
                     _buildTitle(),
-                    // Input Fields
                     _buildInputFields(),
-                    // Forgot Password
                     _buildForgotPassword(),
-                    // Action Buttons
                     _buildActionButtons(),
                   ],
                 ),
@@ -163,39 +162,52 @@ class LoginScreen extends StatelessWidget {
     );
   }
 
-  /// Build Screen Title With Icon and Gradient Text
+  /// BUILD SCREEN TITLE WITH GRADIENT TEXT STYLING
   Widget _buildTitle() {
     return Column(
       children: [
-        // Title Text
         Text(
           "Welcome Back",
           style: GoogleFonts.quicksand(
             fontSize: 22,
             fontWeight: FontWeight.w800,
-            foreground: Paint()..shader = const LinearGradient(colors: AppColors.textGradient).createShader(const Rect.fromLTWH(0, 0, 200, 70)),
+            foreground: Paint()
+              ..shader = const LinearGradient(
+                colors: AppColors.textGradient,
+              ).createShader(const Rect.fromLTWH(0, 0, 200, 70)),
           ),
         ),
-        // Subtitle
-        SizedBox(height: 20),
+        const SizedBox(height: 20),
       ],
     );
   }
 
-  /// Build Login Input Fields Container
+  /// BUILD FORM INPUT FIELDS CONTAINER WITH EMAIL AND PASSWORD FIELDS
   Widget _buildInputFields() {
     return InputContainer(
       children: [
-        // Email Field
-        CustomInputField(controller: emailController, icon: Icons.email_rounded, iconColor: AppColors.emailIconColor, hintText: "Email Address", validator: AuthValidators.validateEmail, keyboardType: TextInputType.emailAddress),
+        CustomInputField(
+          controller: emailController,
+          icon: Icons.email_rounded,
+          iconColor: AppColors.emailIconColor,
+          hintText: "Email Address",
+          validator: AuthValidators.validateEmail,
+          keyboardType: TextInputType.emailAddress,
+        ),
         const InputDivider(),
-        // Password Field
-        CustomInputField(controller: passwordController, icon: Icons.lock_rounded, iconColor: AppColors.passwordIconColor, hintText: "Password", validator: AuthValidators.validatePassword, isPassword: true),
+        CustomInputField(
+          controller: passwordController,
+          icon: Icons.lock_rounded,
+          iconColor: AppColors.passwordIconColor,
+          hintText: "Password",
+          validator: AuthValidators.validatePassword,
+          isPassword: true,
+        ),
       ],
     );
   }
 
-  /// Build Forgot Password Text
+  /// BUILD FORGOT PASSWORD TEXT LINK WITH TAP GESTURE SUPPORT
   Widget _buildForgotPassword() {
     return Container(
       alignment: Alignment.centerRight,
@@ -204,25 +216,37 @@ class LoginScreen extends StatelessWidget {
         onTap: _handleForgotPassword,
         child: Text(
           "Forgot Password?",
-          style: GoogleFonts.quicksand(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.primaryBlue),
+          style: GoogleFonts.quicksand(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: AppColors.primaryBlue,
+          ),
         ),
       ),
     );
   }
 
-  /// Build Action Buttons Section
+  /// BUILD ACTION BUTTONS SECTION FOR LOGIN AND NAVIGATION OPTIONS
   Widget _buildActionButtons() {
     return Column(
       children: [
         const SizedBox(height: 24),
-        // Login Button
-        Obx(() => PrimaryAuthButton(text: "Login To Your Account", icon: Icons.login_rounded, onPressed: _handleLogin, isLoading: loaderController.isLoading.value)),
+        Obx(
+              () => PrimaryAuthButton(
+            text: "Login To Your Account",
+            icon: Icons.login_rounded,
+            onPressed: _handleLogin,
+            isLoading: loaderController.isLoading.value,
+          ),
+        ),
         const SizedBox(height: 20),
-        // OR Divider
         const OrDivider(),
         const SizedBox(height: 20),
-        // Sign Up Button
-        SecondaryAuthButton(text: "Create New Account", icon: Icons.person_add_rounded, onPressed: () => Get.off(() => SignUpScreen())),
+        SecondaryAuthButton(
+          text: "Create New Account",
+          icon: Icons.person_add_rounded,
+          onPressed: () => Get.off(() => SignUpScreen()),
+        ),
       ],
     );
   }

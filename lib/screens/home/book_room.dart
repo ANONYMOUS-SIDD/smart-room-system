@@ -1,4 +1,4 @@
-// Booking Confirmation Dialog - Complete Solution with Proper Owner ID Fetching
+// Booking Confirmation Dialog - Complete Production Solution With Owner ID Fetching
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -6,7 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 class BookingConfirmationDialog extends StatefulWidget {
   final Map<String, dynamic> room;
-  final String? roomDocumentId; // Accept document ID as parameter
+  final String? roomDocumentId; // Accept Document ID As Parameter
 
   const BookingConfirmationDialog({
     super.key,
@@ -31,7 +31,7 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
     final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
-      _showErrorDialog("Please login to book this room");
+      _showErrorDialog("Please Login To Book This Room");
       return;
     }
 
@@ -39,48 +39,40 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
       final room = widget.room;
       final currentUserSessionId = user.uid;
 
-      // CRITICAL PART: Get room owner's sessionId
+      // Critical Part: Get Room Owner's Session ID
       String roomOwnerSessionId = '';
       String roomDocumentId = '';
 
-      // Strategy 1: Use passed document ID if available
+      // Strategy 1: Use Passed Document ID If Available
       roomDocumentId = widget.roomDocumentId ?? room['id']?.toString() ?? '';
 
-      // Strategy 2: Try to get sessionId from room data first
+      // Strategy 2: Try To Get Session ID From Room Data First
       roomOwnerSessionId = room['sessionId']?.toString() ?? '';
 
-      // Strategy 3: If sessionId is not in room data, fetch complete room document
+      // Strategy 3: If Session ID Is Not In Room Data, Fetch Complete Room Document
       if (roomOwnerSessionId.isEmpty) {
         if (roomDocumentId.isNotEmpty) {
-          // We have document ID, fetch complete document
-          debugPrint("Fetching complete room document with ID: $roomDocumentId");
+          // Fetch Complete Document Using Document ID
           final roomDoc = await firestore.collection('room').doc(roomDocumentId).get();
 
           if (roomDoc.exists) {
             final fullData = roomDoc.data() as Map<String, dynamic>;
             roomOwnerSessionId = fullData['sessionId']?.toString() ?? '';
 
-            // Debug log what we found
-            debugPrint("Found room document. Keys: ${fullData.keys.join(', ')}");
-            debugPrint("SessionId from Firestore: $roomOwnerSessionId");
-
             if (roomOwnerSessionId.isEmpty) {
-              debugPrint("❌ ERROR: Even after fetching, sessionId is empty!");
-              debugPrint("Available fields: ${fullData.keys.join(', ')}");
+              _showErrorDialog("Could Not Find Room Owner Information. Please Contact Support.");
+              return;
             }
           } else {
-            debugPrint("❌ ERROR: Room document not found with ID: $roomDocumentId");
+            _showErrorDialog("Room Information Not Found. Please Try Again.");
+            return;
           }
         } else {
-          // No document ID, try to find by unique combination
-          debugPrint("No document ID, trying to find room by unique fields...");
+          // No Document ID Available, Find By Unique Room Combination
           final roomName = room['roomName']?.toString() ?? '';
           final roomLocation = room['location']?.toString() ?? '';
-          final roomPrice = room['price'];
 
           if (roomName.isNotEmpty && roomLocation.isNotEmpty) {
-            debugPrint("Searching for room: $roomName at $roomLocation");
-
             final querySnapshot = await firestore
                 .collection('room')
                 .where('roomName', isEqualTo: roomName)
@@ -93,65 +85,52 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
               roomDocumentId = doc.id;
               final fullData = doc.data() as Map<String, dynamic>;
               roomOwnerSessionId = fullData['sessionId']?.toString() ?? '';
-              debugPrint("Found by name+location. SessionId: $roomOwnerSessionId");
             } else {
-              debugPrint("❌ ERROR: Could not find room by name+location");
+              _showErrorDialog("Could Not Find Room Information. Please Contact Support.");
+              return;
             }
+          } else {
+            _showErrorDialog("Incomplete Room Information. Please Contact Support.");
+            return;
           }
         }
       }
 
-      // Final check
+      // Final Validation Check For Owner Session ID
       if (roomOwnerSessionId.isEmpty) {
-        debugPrint("❌ CRITICAL ERROR: Could not find owner sessionId!");
-        debugPrint("Room data keys: ${room.keys.join(', ')}");
-        debugPrint("Document ID available: $roomDocumentId");
-        _showErrorDialog("Could not find room owner information. Please contact support.");
+        _showErrorDialog("Could Not Find Room Owner Information. Please Contact Support.");
         return;
       }
 
-      debugPrint("✅ SUCCESS: Owner SessionId: $roomOwnerSessionId");
-      debugPrint("✅ SUCCESS: Room DocumentId: $roomDocumentId");
-      debugPrint("✅ SUCCESS: User SessionId: $currentUserSessionId");
-
-      // Generate booking ID
+      // Generate Unique Booking ID
       final bookingId = '${DateTime.now().millisecondsSinceEpoch}_${room['roomName']?.toString().replaceAll(' ', '_')}';
 
-      // Prepare booking data - ONLY STORE ESSENTIAL FIELDS
+      // Prepare Booking Data With Essential Fields Only
       final Map<String, dynamic> bookingData = {
         'bookingId': bookingId,
         'roomDocumentId': roomDocumentId,
-
-        // ONLY THESE THREE ESSENTIAL FIELDS
         'userId': currentUserSessionId,
         'ownerId': roomOwnerSessionId,
-
-        // User email for reference
         'userEmail': user.email ?? '',
-
-        // Booking status
         'bookingStatus': 'requested',
         'bookingDate': DateTime.now(),
-
-        // Timestamps
         'createdAt': DateTime.now(),
         'updatedAt': DateTime.now(),
       };
 
-      // Save booking with only essential data
+      // Save Booking Document To Firestore
       await firestore.collection('bookings').doc(bookingId).set(bookingData);
-      debugPrint("✅ Booking saved successfully with minimal data!");
 
-      // Update room status to 'Requested'
+      // Update Room Status To 'Requested' If Document ID Available
       if (roomDocumentId.isNotEmpty) {
         try {
           await firestore.collection('room').doc(roomDocumentId).update({
             'status': 'Requested',
             'updatedAt': DateTime.now(),
           });
-          debugPrint("✅ Room status updated to 'Requested'");
         } catch (e) {
-          debugPrint("⚠️ Could not update room status: $e");
+          // Log Error But Continue Since Booking Is Already Created
+          print("Warning: Could Not Update Room Status: $e");
         }
       }
 
@@ -162,15 +141,12 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
 
       _showSuccessDialog();
 
-    } catch (e, st) {
-      debugPrint("❌ EXCEPTION: $e");
-      debugPrint("Stack trace: $st");
-
+    } catch (e) {
       setState(() {
         _isSubmitting = false;
       });
 
-      _showErrorDialog("Failed to book room. Please try again.");
+      _showErrorDialog("Failed To Book Room. Please Try Again.");
     }
   }
 
@@ -214,7 +190,7 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
               ),
               const SizedBox(height: 8),
               Text(
-                "Your booking request has been sent to the room owner. They will contact you soon.",
+                "Your Booking Request Has Been Sent To The Room Owner. They Will Contact You Soon.",
                 textAlign: TextAlign.center,
                 style: GoogleFonts.quicksand(
                   fontSize: 13,
@@ -228,8 +204,8 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
                 height: 46,
                 child: ElevatedButton(
                   onPressed: () {
-                    Navigator.of(context).pop(); // Close success dialog
-                    Navigator.of(context).pop(); // Close booking dialog
+                    Navigator.of(context).pop(); // Close Success Dialog
+                    Navigator.of(context).pop(); // Close Booking Dialog
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF4CAF50),
@@ -312,7 +288,7 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Header
+            // Header Section
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               decoration: BoxDecoration(
@@ -373,6 +349,7 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
               ),
             ),
 
+            // Main Content Area
             Expanded(
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
@@ -414,7 +391,7 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
                             ),
                             const SizedBox(height: 12),
 
-                            // Room Name
+                            // Room Name Field
                             _buildDetailRow(
                               icon: Icons.holiday_village_rounded,
                               label: "Room Name",
@@ -423,16 +400,16 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
                             ),
                             const SizedBox(height: 8),
 
-                            // Location
+                            // Location Field
                             _buildDetailRow(
                               icon: Icons.location_on_rounded,
                               label: "Location",
-                              value: room['location']?.toString() ?? "Location not specified",
+                              value: room['location']?.toString() ?? "Location Not Specified",
                               iconColor: Colors.red,
                             ),
                             const SizedBox(height: 8),
 
-                            // Size
+                            // Size Field
                             _buildDetailRow(
                               icon: Icons.square_foot_rounded,
                               label: "Size",
@@ -441,7 +418,7 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
                             ),
                             const SizedBox(height: 8),
 
-                            // Monthly Rent
+                            // Monthly Rent Field
                             _buildDetailRow(
                               icon: Icons.attach_money_rounded,
                               label: "Monthly Rent",
@@ -487,21 +464,21 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
                             const SizedBox(height: 12),
 
                             _buildTermItem(
-                              "This booking request will be sent to the room owner",
+                              "This Booking Request Will Be Sent To The Room Owner",
                               Icons.send_rounded,
                               const Color(0xFF2196F3),
                             ),
                             const SizedBox(height: 8),
 
                             _buildTermItem(
-                              "Owner will contact you within 24 hours",
+                              "Owner Will Contact You Within 24 Hours",
                               Icons.access_time_rounded,
                               const Color(0xFFFF9800),
                             ),
                             const SizedBox(height: 8),
 
                             _buildTermItem(
-                              "You can cancel booking request anytime before confirmation",
+                              "You Can Cancel Booking Request Anytime Before Confirmation",
                               Icons.cancel_rounded,
                               const Color(0xFFF44336),
                             ),
@@ -511,7 +488,7 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
 
                       const SizedBox(height: 30),
 
-                      // Action Buttons
+                      // Action Buttons Section
                       if (!_bookingConfirmed)
                         Column(
                           children: [
@@ -606,8 +583,8 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
                           ],
                         ),
 
-                      // COMPLETELY ATTACHED TO BOTTOM
-                      const SizedBox(height: 0),
+                      // Bottom Spacing
+                      const SizedBox(height: 20),
                     ],
                   ),
                 ),

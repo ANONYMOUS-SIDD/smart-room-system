@@ -9,7 +9,7 @@ import '../../services/toast_service.dart';
 import '../../widgets/modern_app_bar.dart';
 import 'owner_room_details_dialog.dart';
 
-/// Owner Screen For Viewing User Requests And Order Status
+/// Owner Screen For Managing Room Bookings And Uploaded Rooms
 class OwnerScreen extends StatefulWidget {
   const OwnerScreen({super.key});
 
@@ -23,6 +23,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ToastService _toastService = ToastService();
 
+  /// Changes Current Active Tab
   void _changeTab(int index) {
     setState(() {
       _currentTabIndex = index;
@@ -33,7 +34,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
   Widget build(BuildContext context) {
     final bool isSmallScreen = MediaQuery.of(context).size.width < 350;
     final double horizontalPadding = isSmallScreen ? 12 : 14;
-    final currentUserId = _auth.currentUser?.uid;
+    final String? currentUserId = _auth.currentUser?.uid;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -45,7 +46,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
             children: [
               const SizedBox(height: 18),
 
-              // Static Toggle Container - Never refreshes during loading
+              // Tab Selection Container
               Container(
                 margin: EdgeInsets.fromLTRB(horizontalPadding, 8, horizontalPadding, 20),
                 decoration: BoxDecoration(
@@ -92,7 +93,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                 ),
               ),
 
-              // Content Section with AnimatedSwitcher for smooth transitions
+              // Content Section With Smooth Transitions
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 400),
                 switchInCurve: Curves.easeInOut,
@@ -134,6 +135,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
     );
   }
 
+  /// Builds Login Required Message
   Widget _buildLoginRequired({Key? key}) {
     return FadeInWidget(
       key: key,
@@ -155,7 +157,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'You need to login to view your rooms',
+                'You Need To Login To View Your Rooms',
                 style: GoogleFonts.quicksand(
                   fontSize: 14,
                   color: Colors.grey.shade500,
@@ -168,6 +170,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
     );
   }
 
+  /// Builds Active Requests Section
   Widget _buildActiveSection(bool isSmallScreen, String currentUserId, {Key? key}) {
     return StreamBuilder<QuerySnapshot>(
       key: key,
@@ -182,7 +185,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
             child: Padding(
               padding: const EdgeInsets.all(20.0),
               child: Text(
-                'Error: ${snapshot.error}',
+                'Error Loading Data',
                 style: GoogleFonts.quicksand(
                   fontSize: 14,
                   color: Colors.red,
@@ -198,11 +201,10 @@ class _OwnerScreenState extends State<OwnerScreen> {
           return _buildSimpleLoading();
         }
 
-        final bookings = snapshot.data!.docs;
-        final bookingCount = bookings.length;
+        final List<QueryDocumentSnapshot> bookings = snapshot.data!.docs;
+        final int bookingCount = bookings.length;
 
         if (bookingCount == 0) {
-          // CENTERED MESSAGE FOR NO ACTIVE REQUESTS
           return SizedBox(
             height: MediaQuery.of(context).size.height * 0.4,
             child: Center(
@@ -214,7 +216,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                     Icon(Icons.notifications_none_rounded, size: 60, color: Colors.grey.shade400),
                     const SizedBox(height: 16),
                     Text(
-                      'No active requests',
+                      'No Active Requests',
                       style: GoogleFonts.quicksand(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -223,7 +225,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Booking requests will appear here',
+                      'Booking Requests Will Appear Here',
                       style: GoogleFonts.quicksand(
                         fontSize: 14,
                         color: Colors.grey.shade500,
@@ -238,7 +240,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
 
         return Column(
           children: [
-            // Results Title with fade-in
+            // Section Header
             FadeInWidget(
               delay: const Duration(milliseconds: 100),
               child: Padding(
@@ -260,7 +262,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      "$bookingCount requests pending",
+                      "$bookingCount Requests Pending",
                       style: GoogleFonts.quicksand(
                         fontSize: isSmallScreen ? 13 : 14,
                         color: const Color(0xFF64748B),
@@ -272,11 +274,11 @@ class _OwnerScreenState extends State<OwnerScreen> {
               ),
             ),
 
-            // Room Cards with staggered animation
+            // Room Cards With Staggered Animation
             ...List.generate(bookings.length, (index) {
-              final bookingDoc = bookings[index];
-              final booking = bookingDoc.data() as Map<String, dynamic>;
-              final roomDocumentId = booking['roomDocumentId']?.toString() ?? '';
+              final QueryDocumentSnapshot bookingDoc = bookings[index];
+              final Map<String, dynamic> booking = bookingDoc.data() as Map<String, dynamic>;
+              final String roomDocumentId = booking['roomDocumentId']?.toString() ?? '';
 
               return StreamBuilder<DocumentSnapshot>(
                 stream: _firestore.collection('room').doc(roomDocumentId).snapshots(),
@@ -295,8 +297,8 @@ class _OwnerScreenState extends State<OwnerScreen> {
                     );
                   }
 
-                  final room = roomSnapshot.data!.data() as Map<String, dynamic>;
-                  final roomWithBooking = Map<String, dynamic>.from(room);
+                  final Map<String, dynamic> room = roomSnapshot.data!.data() as Map<String, dynamic>;
+                  final Map<String, dynamic> roomWithBooking = Map<String, dynamic>.from(room);
                   roomWithBooking['bookingId'] = booking['bookingId'];
                   roomWithBooking['userEmail'] = booking['userEmail'];
                   roomWithBooking['bookingDate'] = booking['bookingDate'];
@@ -313,8 +315,8 @@ class _OwnerScreenState extends State<OwnerScreen> {
                         isSmallScreen: isSmallScreen,
                         isOwnerView: true,
                         showBookingInfo: true,
-                        isHistoryView: false, // Active requests are NOT history view
-                        shouldShowUserInfo: true, // Show user info for active requests
+                        isHistoryView: false,
+                        shouldShowUserInfo: true,
                       ),
                     ),
                   );
@@ -326,13 +328,14 @@ class _OwnerScreenState extends State<OwnerScreen> {
       },
     );
   }
+
+  /// Builds History Section With Toggle For Booked Rooms
   Widget _buildHistorySection(bool isSmallScreen, String currentUserId, {Key? key}) {
-    bool _showMyBookedRooms = false;
+    bool showMyBookedRooms = false;
 
     return StatefulBuilder(
       builder: (context, setState) {
-        if (_showMyBookedRooms) {
-          // Show rooms booked by current user (user as a renter)
+        if (showMyBookedRooms) {
           return StreamBuilder<QuerySnapshot>(
             key: key,
             stream: _firestore
@@ -346,7 +349,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                   child: Padding(
                     padding: const EdgeInsets.all(20.0),
                     child: Text(
-                      'Error: ${snapshot.error}',
+                      'Error Loading Data',
                       style: GoogleFonts.quicksand(
                         fontSize: 14,
                         color: Colors.red,
@@ -359,7 +362,6 @@ class _OwnerScreenState extends State<OwnerScreen> {
               }
 
               if (snapshot.connectionState == ConnectionState.waiting) {
-                // Simple loading indicator without shimmer for My Room section
                 return Center(
                   child: Padding(
                     padding: const EdgeInsets.all(40.0),
@@ -370,12 +372,12 @@ class _OwnerScreenState extends State<OwnerScreen> {
                 );
               }
 
-              final bookings = snapshot.data!.docs;
-              final bookingCount = bookings.length;
+              final List<QueryDocumentSnapshot> bookings = snapshot.data!.docs;
+              final int bookingCount = bookings.length;
 
               return Column(
                 children: [
-                  // Results Title with filter button
+                  // Section Header With Filter Button
                   Padding(
                     padding: EdgeInsets.symmetric(
                       horizontal: isSmallScreen ? 16 : 20,
@@ -397,7 +399,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              "$bookingCount rooms booked",
+                              "$bookingCount Rooms Booked",
                               style: GoogleFonts.quicksand(
                                 fontSize: isSmallScreen ? 13 : 14,
                                 color: const Color(0xFF64748B),
@@ -406,11 +408,10 @@ class _OwnerScreenState extends State<OwnerScreen> {
                             ),
                           ],
                         ),
-                        // SIMPLIFIED TOGGLE BUTTON FOR MY ROOM SECTION - ACTIVE STATE (PINK)
                         GestureDetector(
                           onTap: () {
                             setState(() {
-                              _showMyBookedRooms = !_showMyBookedRooms;
+                              showMyBookedRooms = !showMyBookedRooms;
                             });
                           },
                           child: Container(
@@ -419,10 +420,10 @@ class _OwnerScreenState extends State<OwnerScreen> {
                               vertical: 6,
                             ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFEC4899), // PINK COLOR WHEN ACTIVE
+                              color: const Color(0xFFEC4899),
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
-                                color: const Color(0xFFEC4899), // PINK BORDER WHEN ACTIVE
+                                color: const Color(0xFFEC4899),
                                 width: 1.5,
                               ),
                               boxShadow: [
@@ -436,7 +437,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                             child: Icon(
                               Icons.meeting_room_rounded,
                               size: 18,
-                              color: Colors.white, // WHITE ICON WHEN ACTIVE
+                              color: Colors.white,
                             ),
                           ),
                         ),
@@ -444,7 +445,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                     ),
                   ),
 
-                  // If no booked rooms
+                  // Empty State For Booked Rooms
                   if (bookingCount == 0)
                     Center(
                       child: Padding(
@@ -463,7 +464,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              'Rooms you booked will appear here',
+                              'Rooms You Booked Will Appear Here',
                               style: GoogleFonts.quicksand(
                                 fontSize: 14,
                                 color: Colors.grey.shade500,
@@ -474,17 +475,16 @@ class _OwnerScreenState extends State<OwnerScreen> {
                       ),
                     ),
 
-                  // Booked Room Cards without the "My Booked Room" badge
+                  // Booked Room Cards
                   ...List.generate(bookings.length, (index) {
-                    final bookingDoc = bookings[index];
-                    final booking = bookingDoc.data() as Map<String, dynamic>;
-                    final roomDocumentId = booking['roomDocumentId']?.toString() ?? '';
+                    final QueryDocumentSnapshot bookingDoc = bookings[index];
+                    final Map<String, dynamic> booking = bookingDoc.data() as Map<String, dynamic>;
+                    final String roomDocumentId = booking['roomDocumentId']?.toString() ?? '';
 
                     return StreamBuilder<DocumentSnapshot>(
                       stream: _firestore.collection('room').doc(roomDocumentId).snapshots(),
                       builder: (context, roomSnapshot) {
                         if (roomSnapshot.connectionState == ConnectionState.waiting) {
-                          // Simple loading placeholder without shimmer
                           return Padding(
                             padding: EdgeInsets.symmetric(
                               horizontal: isSmallScreen ? 16 : 20,
@@ -513,8 +513,8 @@ class _OwnerScreenState extends State<OwnerScreen> {
                           );
                         }
 
-                        final room = roomSnapshot.data!.data() as Map<String, dynamic>;
-                        final roomWithBooking = Map<String, dynamic>.from(room);
+                        final Map<String, dynamic> room = roomSnapshot.data!.data() as Map<String, dynamic>;
+                        final Map<String, dynamic> roomWithBooking = Map<String, dynamic>.from(room);
                         roomWithBooking['bookingId'] = booking['bookingId'];
                         roomWithBooking['userEmail'] = booking['userEmail'];
                         roomWithBooking['bookingDate'] = booking['bookingDate'];
@@ -529,8 +529,8 @@ class _OwnerScreenState extends State<OwnerScreen> {
                             isSmallScreen: isSmallScreen,
                             isOwnerView: true,
                             showBookingInfo: true,
-                            isHistoryView: true, // Booked rooms are history view
-                            shouldShowUserInfo: false, // Don't show user info for ANY history section items
+                            isHistoryView: true,
+                            shouldShowUserInfo: false,
                             isBookedRoom: true,
                           ),
                         );
@@ -542,7 +542,6 @@ class _OwnerScreenState extends State<OwnerScreen> {
             },
           );
         } else {
-          // Show rooms uploaded by owner (default view) - WITHOUT SHIMMER ANIMATION
           return StreamBuilder<QuerySnapshot>(
             key: key,
             stream: _firestore
@@ -555,7 +554,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                   child: Padding(
                     padding: const EdgeInsets.all(20.0),
                     child: Text(
-                      'Error: ${snapshot.error}',
+                      'Error Loading Data',
                       style: GoogleFonts.quicksand(
                         fontSize: 14,
                         color: Colors.red,
@@ -571,12 +570,12 @@ class _OwnerScreenState extends State<OwnerScreen> {
                 return _buildSimpleLoading();
               }
 
-              final rooms = snapshot.data!.docs;
-              final roomCount = rooms.length;
+              final List<QueryDocumentSnapshot> rooms = snapshot.data!.docs;
+              final int roomCount = rooms.length;
 
               return Column(
                 children: [
-                  // Results Title with filter button
+                  // Section Header With Filter Button
                   Padding(
                     padding: EdgeInsets.symmetric(
                       horizontal: isSmallScreen ? 16 : 20,
@@ -598,7 +597,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              "$roomCount rooms uploaded",
+                              "$roomCount Rooms Uploaded",
                               style: GoogleFonts.quicksand(
                                 fontSize: isSmallScreen ? 13 : 14,
                                 color: const Color(0xFF64748B),
@@ -607,11 +606,10 @@ class _OwnerScreenState extends State<OwnerScreen> {
                             ),
                           ],
                         ),
-                        // SIMPLIFIED TOGGLE BUTTON FOR MY ROOM SECTION - INACTIVE STATE
                         GestureDetector(
                           onTap: () {
                             setState(() {
-                              _showMyBookedRooms = !_showMyBookedRooms;
+                              showMyBookedRooms = !showMyBookedRooms;
                             });
                           },
                           child: Container(
@@ -630,7 +628,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                             child: Icon(
                               Icons.meeting_room_rounded,
                               size: 18,
-                              color: const Color(0xFF64748B), // GREY ICON WHEN INACTIVE
+                              color: const Color(0xFF64748B),
                             ),
                           ),
                         ),
@@ -638,7 +636,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                     ),
                   ),
 
-                  // If no rooms uploaded
+                  // Empty State For Uploaded Rooms
                   if (roomCount == 0)
                     Center(
                       child: Padding(
@@ -657,7 +655,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              'Rooms you upload will appear here',
+                              'Rooms You Upload Will Appear Here',
                               style: GoogleFonts.quicksand(
                                 fontSize: 14,
                                 color: Colors.grey.shade500,
@@ -668,11 +666,11 @@ class _OwnerScreenState extends State<OwnerScreen> {
                       ),
                     ),
 
-                  // Room Cards - For uploaded rooms, pass isHistoryView: true
+                  // Uploaded Room Cards
                   ...List.generate(rooms.length, (index) {
-                    final roomDoc = rooms[index];
-                    final room = roomDoc.data() as Map<String, dynamic>;
-                    final roomDocumentId = roomDoc.id;
+                    final DocumentSnapshot roomDoc = rooms[index];
+                    final Map<String, dynamic> room = roomDoc.data() as Map<String, dynamic>;
+                    final String roomDocumentId = roomDoc.id;
 
                     return FadeInWidget(
                       delay: Duration(milliseconds: 100 + (index * 100)),
@@ -684,8 +682,8 @@ class _OwnerScreenState extends State<OwnerScreen> {
                           isSmallScreen: isSmallScreen,
                           isOwnerView: true,
                           showBookingInfo: false,
-                          isHistoryView: true, // Uploaded rooms in history section
-                          shouldShowUserInfo: false, // Don't show user info for ANY history section items
+                          isHistoryView: true,
+                          shouldShowUserInfo: false,
                         ),
                       ),
                     );
@@ -699,21 +697,20 @@ class _OwnerScreenState extends State<OwnerScreen> {
     );
   }
 
+  /// Builds Tab Toggle Button
   Widget _buildToggleButton({
     required IconData icon,
     required String label,
     required bool isSelected,
     required VoidCallback onTap,
   }) {
-    // PINK GRADIENT FOR ACTIVE TAB WHEN SELECTED
-    final Gradient selectedGradient = const LinearGradient(
+    final Gradient selectedGradient = label == 'Active'
+        ? const LinearGradient(
       colors: [Color(0xFFEC4899), Color(0xFFF97316)],
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
-    );
-
-    // BLUE GRADIENT FOR HISTORY TAB WHEN SELECTED
-    final Gradient historyGradient = const LinearGradient(
+    )
+        : const LinearGradient(
       colors: [Color(0xFF8B5CF6), Color(0xFF3B82F6)],
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
@@ -726,9 +723,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
         margin: const EdgeInsets.all(4),
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
-          gradient: isSelected
-              ? (label == 'Active' ? selectedGradient : historyGradient)
-              : null,
+          gradient: isSelected ? selectedGradient : null,
           color: isSelected ? null : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
           boxShadow: isSelected
@@ -770,6 +765,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
     );
   }
 
+  /// Builds Simple Loading Indicator
   Widget _buildSimpleLoading() {
     return Center(
       child: Padding(
@@ -781,6 +777,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
     );
   }
 
+  /// Builds Loading Placeholder For Room Cards
   Widget _buildSimpleCardLoading(bool isSmallScreen, int index) {
     return Padding(
       padding: EdgeInsets.symmetric(
@@ -803,6 +800,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
     );
   }
 
+  /// Builds Card For Missing Room Data
   Widget _buildMissingRoomCard({
     required Map<String, dynamic> booking,
     required bool isSmallScreen,
@@ -844,7 +842,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      "Room data not found",
+                      "Room Data Not Found",
                       style: GoogleFonts.quicksand(
                         fontSize: 13,
                         color: const Color(0xFF64748B),
@@ -908,9 +906,7 @@ class _OwnerScreenState extends State<OwnerScreen> {
   }
 }
 
-// ==============================
-// FADE IN WIDGET FOR STAGGERED ANIMATIONS
-// ==============================
+/// Widget For Staggered Fade-In Animations
 class FadeInWidget extends StatefulWidget {
   final Widget child;
   final Duration delay;
@@ -926,21 +922,21 @@ class FadeInWidget extends StatefulWidget {
 }
 
 class _FadeInWidgetState extends State<FadeInWidget> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+  late AnimationController _animationController;
   late Animation<double> _opacity;
   late Animation<Offset> _offset;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
+    _animationController = AnimationController(
       duration: const Duration(milliseconds: 500),
       vsync: this,
     );
 
     _opacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
-        parent: _controller,
+        parent: _animationController,
         curve: Curves.easeInOut,
       ),
     );
@@ -950,28 +946,28 @@ class _FadeInWidgetState extends State<FadeInWidget> with SingleTickerProviderSt
       end: Offset.zero,
     ).animate(
       CurvedAnimation(
-        parent: _controller,
+        parent: _animationController,
         curve: Curves.easeOutCubic,
       ),
     );
 
     Future.delayed(widget.delay, () {
       if (mounted) {
-        _controller.forward();
+        _animationController.forward();
       }
     });
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _controller,
+      animation: _animationController,
       builder: (context, child) {
         return Opacity(
           opacity: _opacity.value,
@@ -986,9 +982,7 @@ class _FadeInWidgetState extends State<FadeInWidget> with SingleTickerProviderSt
   }
 }
 
-// ==============================
-// UPDATED ROOM CARD WITH OWNER VIEW
-// ==============================
+/// Compact Room Card For Displaying Room Information
 class CompactRoomCardFromFirestore extends StatefulWidget {
   final Map<String, dynamic> room;
   final String roomDocumentId;
@@ -1018,13 +1012,13 @@ class CompactRoomCardFromFirestore extends StatefulWidget {
 class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirestore> {
   bool _imageLoading = true;
 
-  // Check if distance <= 2.0 km for badge display
+  /// Checks If Room Is Within 2.0 Km Of KU Gate
   bool get _isNearKU {
-    final distance = _getFormattedDistance();
+    final String distance = _getFormattedDistance();
     try {
-      final match = RegExp(r'([0-9.]+)').firstMatch(distance);
+      final RegExpMatch? match = RegExp(r'([0-9.]+)').firstMatch(distance);
       if (match != null) {
-        final km = double.parse(match.group(1)!);
+        final double km = double.parse(match.group(1)!);
         return km <= 2.0;
       }
     } catch (e) {
@@ -1033,14 +1027,16 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
     return false;
   }
 
+  /// Formats Distance String
   String _getFormattedDistance() {
-    final distance = widget.room['distance']?.toString() ?? "0.0";
+    final dynamic distance = widget.room['distance']?.toString() ?? "0.0";
     if (!distance.toLowerCase().contains('km')) {
       return '$distance km';
     }
-    return distance;
+    return distance.toString();
   }
 
+  /// Gets Current Room Status
   String _getStatus() {
     if (widget.showBookingInfo) {
       return widget.room['bookingStatus']?.toString().toLowerCase() ?? 'requested';
@@ -1049,6 +1045,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
     }
   }
 
+  /// Returns Display Text For Status
   String _getStatusText(String status) {
     switch (status.toLowerCase()) {
       case 'requested':
@@ -1068,6 +1065,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
     }
   }
 
+  /// Returns Color For Status Badge
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'requested':
@@ -1089,19 +1087,19 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
 
   @override
   Widget build(BuildContext context) {
-    final images = (widget.room['images'] as List<dynamic>?)?.whereType<String>().toList() ?? [];
-    final mainImage = images.isNotEmpty ? images[0] : null;
+    final List<String> images = (widget.room['images'] as List<dynamic>?)?.whereType<String>().toList() ?? [];
+    final String? mainImage = images.isNotEmpty ? images[0] : null;
 
-    final title = widget.room['roomName']?.toString() ?? "Unnamed Room";
-    final walkTime = widget.room['walkTime']?.toString() ?? "0 min";
-    final location = "$walkTime walk from KU Gate";
-    final water = widget.room['water']?.toString() ?? "Available";
-    final sunlight = widget.room['sunlight']?.toString() ?? "Good";
-    final size = "${widget.room['size']?.toString() ?? '0'} Sq Ft";
-    final priceNPR = widget.room['price'] is int ? widget.room['price'] as int : int.tryParse(widget.room['price']?.toString() ?? '0') ?? 0;
-    final distance = _getFormattedDistance();
-    final internetSpeed = "${widget.room['internet']?.toString() ?? '0'} Mbps";
-    final status = _getStatus();
+    final String title = widget.room['roomName']?.toString() ?? "Unnamed Room";
+    final String walkTime = widget.room['walkTime']?.toString() ?? "0 Min";
+    final String location = "$walkTime Walk From KU Gate";
+    final String water = widget.room['water']?.toString() ?? "Available";
+    final String sunlight = widget.room['sunlight']?.toString() ?? "Good";
+    final String size = "${widget.room['size']?.toString() ?? '0'} Sq Ft";
+    final int priceNPR = widget.room['price'] is int ? widget.room['price'] as int : int.tryParse(widget.room['price']?.toString() ?? '0') ?? 0;
+    final String distance = _getFormattedDistance();
+    final String internetSpeed = "${widget.room['internet']?.toString() ?? '0'} Mbps";
+    final String status = _getStatus();
 
     return Container(
       margin: EdgeInsets.symmetric(
@@ -1126,6 +1124,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Image Section
           Stack(
             children: [
               ClipRRect(
@@ -1180,6 +1179,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
             ],
           ),
 
+          // Details Section
           Padding(
             padding: EdgeInsets.all(widget.isSmallScreen ? 12 : 16),
             child: Column(
@@ -1258,6 +1258,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
 
                 SizedBox(height: widget.isSmallScreen ? 10 : 12),
 
+                // Water And Sunlight Indicators
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -1296,6 +1297,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
 
                 SizedBox(height: widget.isSmallScreen ? 12 : 14),
 
+                // Room Specifications
                 Container(
                   padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
                   decoration: BoxDecoration(
@@ -1342,6 +1344,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
 
                 SizedBox(height: widget.isSmallScreen ? 12 : 14),
 
+                // Price And Action Button
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -1455,6 +1458,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
     );
   }
 
+  /// Builds Cached Network Image With Loading Shimmer
   Widget _buildCachedImageWithShimmer(String imageUrl) {
     return Stack(
       fit: StackFit.expand,
@@ -1500,6 +1504,7 @@ class _CompactRoomCardFromFirestoreState extends State<CompactRoomCardFromFirest
     );
   }
 
+  /// Builds Compact Specification Item
   Widget _buildCompactSpecItem(
       IconData icon,
       String title,

@@ -14,19 +14,20 @@ class LocationPickerDialog extends StatefulWidget {
 }
 
 class _LocationPickerDialogState extends State<LocationPickerDialog> {
-  // Fixed starting location (KU Gate)
+  // Fixed Starting Location (KU Gate)
   static const LatLng _fixedStartLocation = LatLng(27.620569, 85.538304);
 
-  LatLng? _selectedLatLng; // Current user location or selected location
+  // State Variables
+  LatLng? _selectedLatLng;
   bool _isLoading = true;
   String? _locationAddress;
   String _errorMessage = '';
 
-  // Navigation Info
+  // Navigation Information
   String _walkTime = "0 min";
   String _distance = "0.00 km";
 
-  // Map type control
+  // Map Type Control
   MapType _currentMapType = MapType.normal;
 
   late GoogleMapController _mapController;
@@ -40,8 +41,13 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
     _checkLocationPermission();
   }
 
+  // Check Location Permission And Get Current Position
   Future<void> _checkLocationPermission() async {
-    setState(() { _isLoading = true; _errorMessage = ''; });
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+
     try {
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -50,7 +56,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
 
       if (permission == LocationPermission.deniedForever) {
         setState(() {
-          _errorMessage = 'Location permission denied permanently';
+          _errorMessage = 'Location Permission Denied Permanently';
           _isLoading = false;
         });
         return;
@@ -58,13 +64,13 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
 
       if (permission == LocationPermission.denied) {
         setState(() {
-          _errorMessage = 'Location permission denied';
+          _errorMessage = 'Location Permission Denied';
           _isLoading = false;
         });
         return;
       }
 
-      Position position = await Geolocator.getCurrentPosition(
+      final Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
 
@@ -75,10 +81,8 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
         _updateMarkers();
       });
 
-      // Draw initial polyline from fixed location to current location
       _fetchWalkingPath(_selectedLatLng!);
 
-      // Automatically center on the fixed starting location initially
       if (_mapController != null) {
         _mapController.animateCamera(
           CameraUpdate.newLatLngZoom(_fixedStartLocation, 15),
@@ -86,19 +90,19 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Error getting location: $e';
+        _errorMessage = 'Error Getting Location: $e';
         _isLoading = false;
       });
     }
   }
 
-  // --- OSRM Walking Logic ---
+  // Fetch Walking Path From OSRM API
   Future<void> _fetchWalkingPath(LatLng destination) async {
     setState(() {
-      _polylines.clear(); // Clear previous polylines
+      _polylines.clear();
     });
 
-    final url = 'https://router.project-osrm.org/route/v1/foot/'
+    final String url = 'https://router.project-osrm.org/route/v1/foot/'
         '${_fixedStartLocation.longitude},${_fixedStartLocation.latitude};'
         '${destination.longitude},${destination.latitude}'
         '?overview=full&geometries=geojson';
@@ -109,13 +113,12 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
         final data = json.decode(response.body);
         final route = data['routes'][0];
 
-        double distMeters = route['distance'].toDouble();
-        double mins = (distMeters / 80) * 1.1;
+        final double distMeters = route['distance'].toDouble();
+        final double mins = (distMeters / 80) * 1.1;
 
         final coords = route['geometry']['coordinates'] as List;
-        List<LatLng> points = coords.map((c) => LatLng(c[1], c[0])).toList();
+        final List<LatLng> points = coords.map((c) => LatLng(c[1], c[0])).toList();
 
-        // Ensure polyline starts exactly from fixed location and ends exactly at destination
         points.insert(0, _fixedStartLocation);
         points.add(destination);
 
@@ -136,7 +139,6 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
         });
       }
     } catch (e) {
-      debugPrint("OSRM Error: $e");
       setState(() {
         _distance = "0.00 km";
         _walkTime = "0 min";
@@ -144,6 +146,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
     }
   }
 
+  // Handle Map Tap To Select New Location
   void _onMapTap(LatLng location) {
     setState(() {
       _selectedLatLng = location;
@@ -151,15 +154,13 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
       _updateMarkers();
     });
 
-    // Draw new polyline from fixed location to tapped location
     _fetchWalkingPath(location);
   }
 
+  // Update Map Markers
   void _updateMarkers() {
-    // Clear all markers
     _markers.clear();
 
-    // Add fixed start location marker (KU Gate)
     _markers.add(Marker(
       markerId: const MarkerId('fixed_start'),
       position: _fixedStartLocation,
@@ -167,9 +168,6 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
       infoWindow: InfoWindow(
         title: 'KU Gate (Fixed Starting Point)',
         snippet: 'Kathmandu University Main Gate',
-        onTap: () {
-          _showMarkerInfo('KU Gate', 'Fixed Starting Location\n27.620569° N, 85.538304° E');
-        },
       ),
     ));
 
@@ -181,105 +179,29 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
         infoWindow: InfoWindow(
           title: 'Selected Location',
           snippet: _formatCoordinates(_selectedLatLng!.latitude, _selectedLatLng!.longitude),
-          onTap: () {
-            _showMarkerInfo('Your Location', _formatCoordinates(_selectedLatLng!.latitude, _selectedLatLng!.longitude));
-          },
         ),
       ));
     }
   }
 
-  void _showMarkerInfo(String title, String details) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        margin: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.15),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: GoogleFonts.quicksand(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.black,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                height: 1,
-                color: Colors.grey.shade300,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                details,
-                style: GoogleFonts.quicksand(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade700,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.blue.shade200),
-                    ),
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: Text(
-                        "Close",
-                        style: GoogleFonts.quicksand(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.blue.shade800,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
+  // Format Coordinates To Readable String
   String _formatCoordinates(double lat, double lng) =>
       '${lat.abs().toStringAsFixed(6)}° ${lat >= 0 ? 'N' : 'S'}, ${lng.abs().toStringAsFixed(6)}° ${lng >= 0 ? 'E' : 'W'}';
 
+  // Toggle Between Map Types
   void _toggleMapType() {
     setState(() {
       _currentMapType = _currentMapType == MapType.normal ? MapType.satellite : MapType.normal;
     });
   }
 
+  // Center Map On Current Location
   Future<void> _goToCurrentLocation() async {
     try {
-      Position position = await Geolocator.getCurrentPosition(
+      final Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
-      LatLng currentLocation = LatLng(position.latitude, position.longitude);
+      final LatLng currentLocation = LatLng(position.latitude, position.longitude);
 
       setState(() {
         _selectedLatLng = currentLocation;
@@ -287,18 +209,16 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
         _updateMarkers();
       });
 
-      // Recalculate polyline to new current location
       _fetchWalkingPath(currentLocation);
 
-      // Center map on the midpoint between fixed location and current location
-      double midLat = (_fixedStartLocation.latitude + currentLocation.latitude) / 2;
-      double midLng = (_fixedStartLocation.longitude + currentLocation.longitude) / 2;
+      final double midLat = (_fixedStartLocation.latitude + currentLocation.latitude) / 2;
+      final double midLng = (_fixedStartLocation.longitude + currentLocation.longitude) / 2;
 
       await _mapController.animateCamera(
         CameraUpdate.newLatLngZoom(LatLng(midLat, midLng), 14),
       );
     } catch (e) {
-      debugPrint("Error getting current location: $e");
+      // Error Handled Silently
     }
   }
 
@@ -345,6 +265,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
     );
   }
 
+  // Build Dialog Header
   Widget _buildHeader() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -399,6 +320,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
     );
   }
 
+  // Build Map View With Controls
   Widget _buildMapView() {
     return Stack(
       children: [
@@ -425,7 +347,6 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                 if (!_controller.isCompleted) _controller.complete(c);
                 _mapController = c;
 
-                // Draw initial polyline once map is ready
                 if (_selectedLatLng != null) {
                   _fetchWalkingPath(_selectedLatLng!);
                 }
@@ -471,7 +392,6 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                     size: 20,
                   ),
                   padding: const EdgeInsets.all(10),
-                  constraints: const BoxConstraints(),
                   style: IconButton.styleFrom(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(25),
@@ -500,7 +420,6 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
                     size: 20,
                   ),
                   padding: const EdgeInsets.all(10),
-                  constraints: const BoxConstraints(),
                   style: IconButton.styleFrom(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(25),
@@ -515,6 +434,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
     );
   }
 
+  // Build Location Information Panel
   Widget _buildLocationInfo(bool isSmallScreen) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
@@ -647,6 +567,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
     );
   }
 
+  // Build Compact Information Tile
   Widget _compactInfoTile(IconData icon, String label, String value, Color color, bool isSmallScreen) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -674,6 +595,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
     );
   }
 
+  // Build Compact Gradient Button
   Widget _compactGradientButton(String text, List<Color> colors, IconData icon, VoidCallback onTap, bool isSmallScreen) {
     return GestureDetector(
       onTap: onTap,
@@ -709,6 +631,7 @@ class _LocationPickerDialogState extends State<LocationPickerDialog> {
     );
   }
 
+  // Build Compact Outlined Button
   Widget _compactOutlinedButton(String text, Color color, IconData icon, VoidCallback onTap, bool isSmallScreen) {
     return GestureDetector(
       onTap: onTap,

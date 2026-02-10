@@ -50,31 +50,31 @@ class OwnerRoomDetailsDialog extends StatefulWidget {
 
 class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+  late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
   late Animation<double> _fadeAnimation;
   int _selectedImageIndex = 0;
   bool _isViewingFullImage = false;
 
-  // User information
+  // User Information State
   Map<String, dynamic>? _userData;
   bool _isLoadingUser = true;
 
-  // Map related state variables
+  // Map Related State Variables
   final _currentMapType = ValueNotifier<MapType>(MapType.normal);
   final _mapController = Completer<GoogleMapController>();
   final _isLoadingLocation = ValueNotifier<bool>(false);
   final _currentLatLng = ValueNotifier<LatLng?>(null);
   final _polylines = ValueNotifier<Set<Polyline>>({});
-  final _walkTime = ValueNotifier<String>("0 min");
-  final _distance = ValueNotifier<String>("0.00 km");
+  final _walkTime = ValueNotifier<String>("0 Min");
+  final _distance = ValueNotifier<String>("0.00 Km");
 
-  // Toast service
-  final ToastService _toastService = ToastService();
-
-  // New polyline approach - direct drawing
+  // Polyline State
   LatLng? _destination;
   bool _polylineDrawn = false;
+
+  // Toast Service Instance
+  final ToastService _toastService = ToastService();
 
   List<String> get _images {
     final imagesData = widget.room['images'];
@@ -101,7 +101,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   String _getFormattedDistance() {
     final distance = widget.room['distance']?.toString() ?? "0.0";
     if (!distance.toLowerCase().contains('km')) {
-      return '$distance km';
+      return '$distance Km';
     }
     return distance;
   }
@@ -109,13 +109,9 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   @override
   void initState() {
     super.initState();
-    // Add debug print
-    print('📱 OwnerRoomDetailsDialog created');
-    print('   Booking User ID: ${widget.userId}');
-    print('   Room ID: ${widget.roomDocumentId}');
-    print('   Booking ID: ${widget.bookingId}');
-    print('   Room Owner ID: ${widget.room['sessionId']}');
-    _controller = AnimationController(
+
+    // Initialize Animation Controller And Animations
+    _animationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
@@ -123,16 +119,22 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     _scaleAnimation = Tween<double>(
       begin: 0.95,
       end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeOutBack,
+    ));
 
     _fadeAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeOut,
+    ));
 
-    _controller.forward();
+    _animationController.forward();
 
-    // Initialize destination
+    // Initialize Destination Coordinates From Room Data
     final hasCoordinates =
         widget.room['latitude'] != null && widget.room['longitude'] != null;
     if (hasCoordinates) {
@@ -147,36 +149,25 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
       }
     }
 
-    // Get location and draw polyline
+    // Fetch Current Location And Draw Polyline
     _getLocationAndDrawPolyline();
 
-    // Fetch user information - Only if shouldShowUserInfo is true
+    // Fetch User Information If Required
     if (widget.shouldShowUserInfo) {
       _fetchUserData();
     } else {
-      // Don't show user info for "My Room" section
       _isLoadingUser = false;
     }
   }
 
+  /// Fetches User Data For The Booking User
   Future<void> _fetchUserData() async {
     try {
-      if (!widget.shouldShowUserInfo) {
-        setState(() {
-          _isLoadingUser = false;
-        });
-        return;
-      }
-
       final firestore = FirebaseFirestore.instance;
-
-      // **FIXED: Get booking user ID (the user who made the booking request)**
       final bookingUserId = widget.userId.trim();
 
-      print('🔍 Fetching booking user data for userId: $bookingUserId');
-
       if (bookingUserId.isNotEmpty) {
-        // Query by booking user's SessionId
+        // Query User Collection By Session ID
         final userQuery = await firestore.collection('User')
             .where('SessionId', isEqualTo: bookingUserId)
             .limit(1)
@@ -185,7 +176,6 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         if (userQuery.docs.isNotEmpty) {
           final doc = userQuery.docs.first;
           final data = doc.data() as Map<String, dynamic>;
-          print('✅ Found booking user: ${data['Name']}');
 
           setState(() {
             _userData = {
@@ -201,24 +191,23 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         }
       }
 
-      // Fallback
+      // Fallback To Default User Data
       setState(() {
         _userData = {
           'name': 'Booking User',
-          'email': 'Not available',
-          'phone': 'Not available',
+          'email': 'Not Available',
+          'phone': 'Not Available',
           'profilePath': '',
           'sessionId': bookingUserId,
         };
         _isLoadingUser = false;
       });
     } catch (e) {
-      print("❌ Error fetching user data: $e");
       setState(() {
         _userData = {
           'name': 'Booking User',
-          'email': 'Not available',
-          'phone': 'Not available',
+          'email': 'Not Available',
+          'phone': 'Not Available',
           'profilePath': '',
           'sessionId': widget.userId,
         };
@@ -227,9 +216,10 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     }
   }
 
+  /// Gets Current Location And Draws Polyline To Destination
   Future<void> _getLocationAndDrawPolyline() async {
     try {
-      // Check location permission
+      // Check And Request Location Permissions
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -237,28 +227,29 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
 
       if (permission == LocationPermission.whileInUse ||
           permission == LocationPermission.always) {
-        // Get current location
+        // Get Current Position
         Position position = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high,
         );
 
         _currentLatLng.value = LatLng(position.latitude, position.longitude);
 
-        // Draw polyline immediately if destination exists
+        // Draw Polyline If Destination Exists
         if (_destination != null && !_polylineDrawn) {
           await _drawDirectPolyline();
         }
       }
     } catch (e) {
-      debugPrint("Location error in init: $e");
+      // Location Error Handled Silently
     }
   }
 
+  /// Draws Polyline Between Current Location And Destination
   Future<void> _drawDirectPolyline() async {
     if (_currentLatLng.value == null || _destination == null) return;
 
     try {
-      // Try OSRM API first
+      // Attempt To Fetch Route From OSRM API
       final url =
           'https://router.project-osrm.org/route/v1/foot/'
           '${_currentLatLng.value!.longitude},${_currentLatLng.value!.latitude};'
@@ -293,10 +284,10 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         }
       }
     } catch (e) {
-      debugPrint("OSRM failed, drawing straight line: $e");
+      // Fallback To Straight Line If API Fails
     }
 
-    // Fallback: Draw straight line
+    // Draw Straight Line As Fallback
     _polylines.value = {
       Polyline(
         polylineId: const PolylineId("walk_path"),
@@ -313,16 +304,18 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
 
   @override
   void dispose() {
-    _controller.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
+  /// Closes The Bottom Sheet With Animation
   void _closeSheet() {
-    _controller.reverse().then((_) {
+    _animationController.reverse().then((_) {
       Navigator.pop(context);
     });
   }
 
+  /// Opens Full Screen Image Viewer
   void _viewFullImage(int index) {
     setState(() {
       _selectedImageIndex = index;
@@ -330,18 +323,21 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     });
   }
 
+  /// Closes Full Screen Image Viewer
   void _closeImageViewer() {
     setState(() {
       _isViewingFullImage = false;
     });
   }
 
+  /// Toggles Between Map Types (Normal/Satellite)
   void _toggleMapType() {
     _currentMapType.value = _currentMapType.value == MapType.normal
         ? MapType.satellite
         : MapType.normal;
   }
 
+  /// Centers Map On Current Location
   Future<void> _goToCurrentLocation() async {
     try {
       Position position = await Geolocator.getCurrentPosition(
@@ -351,21 +347,20 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
 
       _currentLatLng.value = currentLocation;
 
-      // Center map on current location
       final controller = await _mapController.future;
       await controller.animateCamera(
         CameraUpdate.newLatLngZoom(currentLocation, 16),
       );
 
-      // Redraw polyline
       if (_destination != null) {
         await _drawDirectPolyline();
       }
     } catch (e) {
-      debugPrint("Error getting current location: $e");
+      _toastService.showErrorMessage('Unable To Get Current Location');
     }
   }
 
+  /// Opens Location In Google Maps App
   Future<void> _openInGoogleMaps() async {
     final latitude = widget.room['latitude'];
     final longitude = widget.room['longitude'];
@@ -379,43 +374,40 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         if (await canLaunchUrl(url)) {
           await launchUrl(url);
         } else {
-          _toastService.showErrorMessage('Could not launch Google Maps');
+          _toastService.showErrorMessage('Could Not Launch Google Maps');
         }
       }
     }
   }
 
-  // Booking status update method (only for active requests)
+  /// Updates Booking Status And Room Status In Firestore
   Future<void> _updateBookingStatus(String newStatus) async {
     try {
       final firestore = FirebaseFirestore.instance;
 
-      // Update booking status
+      // Update Booking Document
       await firestore.collection('bookings').doc(widget.bookingId).update({
         'bookingStatus': newStatus,
         'updatedAt': DateTime.now(),
       });
 
-      // Update room status in room collection
+      // Update Room Status Based On Booking Decision
       final roomStatus = newStatus == 'booked' ? 'Booked' : 'Available';
       await firestore.collection('room').doc(widget.roomDocumentId).update({
         'status': roomStatus,
         'updatedAt': DateTime.now(),
       });
 
-      // Show success message using ToastService
       _toastService.showSuccessMessage(
         newStatus == 'booked'
-            ? 'Booking accepted successfully! Room marked as Booked.'
-            : 'Booking rejected successfully! Room marked as Available.',
+            ? 'Booking Accepted Successfully! Room Marked As Booked.'
+            : 'Booking Rejected Successfully! Room Marked As Available.',
       );
 
-      // Close the dialog after update
       _closeSheet();
     } catch (e) {
-      debugPrint("Error updating status: $e");
       _toastService.showErrorMessage(
-        'Failed to update status. Please try again.',
+        'Failed To Update Status. Please Try Again.',
       );
     }
   }
@@ -427,7 +419,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     final isTablet = screenWidth > 600;
 
     return AnimatedBuilder(
-      animation: _controller,
+      animation: _animationController,
       builder: (context, child) {
         return Opacity(
           opacity: _fadeAnimation.value,
@@ -439,7 +431,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         child: Container(
           color: Colors.black.withOpacity(0.4),
           child: GestureDetector(
-            onTap: () {}, // Prevent closing when tapping on content
+            onTap: () {},
             child: DraggableScrollableSheet(
               initialChildSize: isTablet ? 0.85 : 0.9,
               minChildSize: 0.5,
@@ -479,10 +471,10 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     final room = widget.room;
     final images = _images;
 
-    // Data extraction with fallbacks
+    // Extract Room Data With Fallback Values
     final title = room['roomName']?.toString() ?? "Unnamed Room";
-    final walkTime = room['walkTime']?.toString() ?? "0 min";
-    final location = "$walkTime walk from KU Gate";
+    final walkTime = room['walkTime']?.toString() ?? "0 Min";
+    final location = "$walkTime Walk From KU Gate";
     final water = room['water']?.toString() ?? "Available";
     final sunlight = room['sunlight']?.toString() ?? "Good";
     final hasBathroom =
@@ -494,11 +486,10 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     final distance = _getFormattedDistance();
     final internetSpeed = "${room['internet']?.toString() ?? '0'} Mbps";
     final fullLocation =
-        room['location']?.toString() ?? "Location not specified";
+        room['location']?.toString() ?? "Location Not Specified";
     final latitude = room['latitude'];
     final longitude = room['longitude'];
 
-    // Get booking status
     final bookingStatus =
         room['bookingStatus']?.toString().toLowerCase() ?? 'requested';
 
@@ -506,10 +497,10 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
       controller: scrollController,
       physics: const BouncingScrollPhysics(),
       slivers: [
-        // Header with drag handle
+        // Header With Drag Handle
         SliverToBoxAdapter(child: _buildHeader(isSmallScreen, isTablet)),
 
-        // User Information Section - Only show if shouldShowUserInfo is true
+        // User Information Section
         if (widget.shouldShowUserInfo)
           SliverToBoxAdapter(
             child: _isLoadingUser
@@ -517,18 +508,18 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                 : _buildUserInfoSection(isSmallScreen, isTablet),
           ),
 
-        // Main Image
+        // Main Image Section
         SliverToBoxAdapter(
           child: _buildMainImageSection(images, isSmallScreen, isTablet),
         ),
 
-        // Thumbnails Row - Centered
+        // Thumbnails Row
         if (images.length > 1)
           SliverToBoxAdapter(
             child: _buildThumbnailsSection(images, isSmallScreen, isTablet),
           ),
 
-        // Main Room Card with everything
+        // Main Room Card With Details
         SliverToBoxAdapter(
           child: Padding(
             padding: EdgeInsets.symmetric(
@@ -560,7 +551,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Room Title and Status Button Row
+                    // Room Title And Status Button Row
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -588,7 +579,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                                 height: isTablet ? 8 : (isSmallScreen ? 6 : 6),
                               ),
 
-                              // Location with RED icon
+                              // Location With Icon
                               Row(
                                 children: [
                                   Icon(
@@ -625,7 +616,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                           width: isTablet ? 16 : (isSmallScreen ? 8 : 10),
                         ),
 
-                        // Room Status Button - Shows booking status
+                        // Room Status Badge
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
@@ -712,7 +703,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       ),
                     ),
 
-                    // Monthly Rent Section (without Compare button for owner)
+                    // Monthly Rent Section
                     Padding(
                       padding: EdgeInsets.only(
                         top: isTablet ? 20 : (isSmallScreen ? 16 : 18),
@@ -806,7 +797,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       ),
                     ),
 
-                    // Divider before Additional Amenities
+                    // Divider Before Additional Amenities
                     Padding(
                       padding: EdgeInsets.symmetric(
                         vertical: isTablet ? 16 : (isSmallScreen ? 12 : 14),
@@ -817,7 +808,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       ),
                     ),
 
-                    // Additional Amenities
+                    // Additional Amenities Section
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -837,7 +828,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            // Water Pill
+                            // Water Availability
                             Container(
                               padding: EdgeInsets.symmetric(
                                 horizontal: isTablet
@@ -865,7 +856,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                               ),
                             ),
 
-                            // Sunlight Pill
+                            // Sunlight Availability
                             Container(
                               padding: EdgeInsets.symmetric(
                                 horizontal: isTablet
@@ -903,7 +894,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            // Bathroom Pill
+                            // Bathroom Type
                             Container(
                               padding: EdgeInsets.symmetric(
                                 horizontal: isTablet
@@ -916,10 +907,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                               decoration: BoxDecoration(
                                 color: hasBathroom
                                     ? const Color(0xFFE3F2FD)
-                                    : // Light blue for attached
-                                const Color(
-                                  0xFFF5F5F5,
-                                ), // Light grey for shared
+                                    : const Color(0xFFF5F5F5),
                                 borderRadius: BorderRadius.circular(
                                   isTablet ? 18 : 16,
                                 ),
@@ -935,15 +923,12 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                                   fontWeight: FontWeight.w700,
                                   color: hasBathroom
                                       ? const Color(0xFF2196F3)
-                                      : // Blue for attached
-                                  const Color(
-                                    0xFF757575,
-                                  ), // Grey for shared
+                                      : const Color(0xFF757575),
                                 ),
                               ),
                             ),
 
-                            // Windows Pill
+                            // Windows Count
                             Container(
                               padding: EdgeInsets.symmetric(
                                 horizontal: isTablet
@@ -977,7 +962,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                           height: isTablet ? 20 : (isSmallScreen ? 12 : 16),
                         ),
 
-                        // Amenity Windows (Laundry, Wi-Fi, Parking, Security, Cleaning)
+                        // Amenity Icons Row
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
@@ -1021,7 +1006,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                           ],
                         ),
 
-                        // For small screens, show the last 2 windows in a second row
+                        // Extra Row For Small Screens
                         if (isSmallScreen) ...[
                           SizedBox(height: 12),
                           Row(
@@ -1065,13 +1050,13 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
           ),
         ),
 
-        // Only show action buttons for active requests (not history view and status is requested)
+        // Action Buttons For Active Requests
         if (!widget.isHistoryView && bookingStatus == 'requested')
           SliverToBoxAdapter(
             child: _buildActionButtons(isSmallScreen, isTablet),
           ),
 
-        // Bottom spacing - REMOVED the booking status section for history view
+        // Bottom Spacing
         SliverToBoxAdapter(
           child: SizedBox(height: isTablet ? 20 : (isSmallScreen ? 15 : 20)),
         ),
@@ -1087,7 +1072,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
       ),
       child: Column(
         children: [
-          // Drag handle
+          // Drag Handle
           Container(
             width: isTablet ? 50 : 40,
             height: 4,
@@ -1097,7 +1082,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
             ),
           ),
           SizedBox(height: isTablet ? 16 : (isSmallScreen ? 8 : 12)),
-          // Center aligned title
+          // Dialog Title
           Center(
             child: Text(
               widget.isHistoryView
@@ -1116,14 +1101,13 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   }
 
   Widget _buildUserInfoSection(bool isSmallScreen, bool isTablet) {
-    // Only show if we have user data
     if (_userData == null) {
       return const SizedBox.shrink();
     }
 
     final userName = _userData!['name']?.toString() ?? 'User';
-    final userEmail = _userData!['email']?.toString() ?? 'No email';
-    final userPhone = _userData!['phone']?.toString() ?? 'Not available';
+    final userEmail = _userData!['email']?.toString() ?? 'No Email';
+    final userPhone = _userData!['phone']?.toString() ?? 'Not Available';
     final userPhoto = _userData!['profilePath']?.toString();
 
     return Padding(
@@ -1149,7 +1133,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         ),
         child: Row(
           children: [
-            // User Photo
+            // User Profile Picture
             Container(
               width: isTablet ? 50 : (isSmallScreen ? 40 : 45),
               height: isTablet ? 50 : (isSmallScreen ? 40 : 45),
@@ -1197,7 +1181,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
             ),
             SizedBox(width: isTablet ? 14 : (isSmallScreen ? 10 : 12)),
 
-            // User Details
+            // User Details Column
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1258,7 +1242,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
               ),
             ),
 
-            // **FIXED CHAT BUTTON - Now chats with booking user**
+            // Chat Button
             _buildChatButton(isSmallScreen, isTablet),
           ],
         ),
@@ -1266,7 +1250,6 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     );
   }
 
-  // **UPDATED: SEPARATE CHAT BUTTON WIDGET - Now chats with booking user**
   Widget _buildChatButton(bool isSmallScreen, bool isTablet) {
     return Container(
       width: isTablet ? 36 : (isSmallScreen ? 30 : 32),
@@ -1300,47 +1283,37 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     );
   }
 
-  // **UPDATED: SEPARATE METHOD FOR CHAT BUTTON HANDLING - Now chats with booking user**
+  /// Opens Chat With Booking User
   void _openChatDirect() {
-    print('💬 CHAT BUTTON CLICKED');
-
-    // **FIXED: Get booking user ID (the user who requested the booking)**
     final bookingUserId = widget.userId.trim();
-    print('👤 Booking user ID: $bookingUserId');
-
-    // Get my ID (current user - room owner)
     final myId = FirebaseAuth.instance.currentUser?.uid ?? '';
+
     if (myId.isEmpty) {
-      print('❌ I need to login first');
-      _toastService.showErrorMessage('Please login to chat');
+      _toastService.showErrorMessage('Please Login To Chat');
       return;
     }
 
-    print('🏠 My ID (Room Owner): $myId');
-
-    // Sort IDs for conversation ID
+    // Create Conversation ID
     final List<String> ids = [myId, bookingUserId]..sort();
     final conversationId = '${ids[0]}_${ids[1]}';
-    print('💬 Creating conversation: $conversationId');
 
-    // Create chat in Firestore
+    // Create Chat In Firestore
     _createChatInFirestore(conversationId, myId, bookingUserId);
-
-    // Close the dialog
     Navigator.pop(context);
   }
 
+  /// Creates Chat Conversation And Initial Message In Firestore
   void _createChatInFirestore(String convId, String myId, String bookingUserId) async {
     try {
       final firestore = FirebaseFirestore.instance;
 
-      // 1. Create conversation
+      // Create Conversation Document
       await firestore.collection('chat_users').doc(convId).set({
         'conversationId': convId,
         'user1Id': myId,
         'user2Id': bookingUserId,
         'users': [myId, bookingUserId],
-        'lastMessage': 'Hello! I\'m interested in your room booking.',
+        'lastMessage': 'Hello! I\'m Interested In Your Room Booking.',
         'lastMessageTime': Timestamp.now(),
         'lastMessageSenderId': myId,
         'unreadCount': {myId: 0, bookingUserId: 1},
@@ -1349,29 +1322,24 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         'updatedAt': Timestamp.now(),
       });
 
-      print('✅ Conversation created with booking user');
-
-      // 2. Create first message
+      // Create Initial Message
       final messageId = 'msg_${DateTime.now().millisecondsSinceEpoch}';
       await firestore.collection('chats').doc(messageId).set({
         'messageId': messageId,
         'conversationId': convId,
         'senderId': myId,
         'receiverId': bookingUserId,
-        'message': 'Hello! I\'m the room owner. Let\'s discuss your booking.',
+        'message': 'Hello! I\'m The Room Owner. Let\'s Discuss Your Booking.',
         'type': 'text',
         'timestamp': Timestamp.now(),
         'isRead': false,
         'isDeleted': false,
       });
 
-      print('✅ Message created');
-
-      // Show success
-      _toastService.showSuccessMessage('Booking user added to chat list!');
+      _toastService.showSuccessMessage('Booking User Added To Chat List!');
 
     } catch (e) {
-      print('⚠️ Error (but continuing): $e');
+      _toastService.showErrorMessage('Could Not Start Chat');
     }
   }
 
@@ -1403,7 +1371,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
           ),
           child: Row(
             children: [
-              // User Photo Shimmer with circle shape
+              // Profile Picture Shimmer
               Container(
                 width: isTablet ? 50 : (isSmallScreen ? 40 : 45),
                 height: isTablet ? 50 : (isSmallScreen ? 40 : 45),
@@ -1418,12 +1386,11 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
               ),
               SizedBox(width: isTablet ? 14 : (isSmallScreen ? 10 : 12)),
 
-              // User Details Shimmer with better animation
+              // User Details Shimmer
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Name shimmer
                     Container(
                       width: double.infinity,
                       height: isTablet ? 16 : 14,
@@ -1433,8 +1400,6 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       ),
                       margin: EdgeInsets.only(bottom: isTablet ? 6 : 4),
                     ),
-
-                    // Email row shimmer
                     Row(
                       children: [
                         Container(
@@ -1457,10 +1422,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                         ),
                       ],
                     ),
-
                     SizedBox(height: isTablet ? 4 : (isSmallScreen ? 3 : 4)),
-
-                    // Phone row shimmer
                     Row(
                       children: [
                         Container(
@@ -1486,7 +1448,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                 ),
               ),
 
-              // Messaging icon placeholder
+              // Chat Button Shimmer
               Container(
                 width: isTablet ? 36 : (isSmallScreen ? 30 : 32),
                 height: isTablet ? 36 : (isSmallScreen ? 30 : 32),
@@ -1605,7 +1567,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                           ),
                         ),
                         child: Text(
-                          "${images.length} photos",
+                          "${images.length} Photos",
                           style: GoogleFonts.quicksand(
                             fontSize: isTablet ? 14 : (isSmallScreen ? 11 : 12),
                             fontWeight: FontWeight.w700,
@@ -1621,7 +1583,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
           ),
         ),
 
-        // Near KU Gate Badge (if applicable)
+        // Near KU Gate Badge
         if (_isNearKU)
           Positioned(
             top: isTablet ? 16 : 10,
@@ -1825,7 +1787,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         color: Colors.black.withOpacity(0.95),
         child: Column(
           children: [
-            // Header
+            // Header With Close Button
             SafeArea(
               child: Padding(
                 padding: EdgeInsets.symmetric(
@@ -1859,13 +1821,13 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                         color: Colors.white,
                       ),
                     ),
-                    SizedBox(width: 40), // For symmetry
+                    SizedBox(width: 40),
                   ],
                 ),
               ),
             ),
 
-            // Image Viewer
+            // Image Viewer With PageView
             Expanded(
               child: PageView.builder(
                 itemCount: images.length,
@@ -1904,7 +1866,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
               ),
             ),
 
-            // Thumbnails at bottom
+            // Thumbnails At Bottom
             SafeArea(
               top: false,
               child: Padding(
@@ -2151,7 +2113,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Only "Location" header
+            // Location Header
             Padding(
               padding: const EdgeInsets.only(bottom: 16),
               child: Row(
@@ -2185,7 +2147,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
             ),
 
             if (hasCoordinates && destination != null) ...[
-              // LARGER Map Container with minimal margins
+              // Google Map Container
               Container(
                 height: isTablet ? 380 : (isSmallScreen ? 280 : 320),
                 width: double.infinity,
@@ -2211,7 +2173,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                   ),
                   child: Stack(
                     children: [
-                      // Google Map with full interactivity
+                      // Google Map
                       ValueListenableBuilder<MapType>(
                         valueListenable: _currentMapType,
                         builder: (context, mapType, _) {
@@ -2225,14 +2187,12 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                                 _mapController.complete(controller);
                               }
 
-                              // Draw polyline if not already drawn
                               if (_currentLatLng.value != null &&
                                   !_polylineDrawn &&
                                   destination != null) {
                                 _drawDirectPolyline();
                               }
 
-                              // Fit bounds to show both markers
                               if (_currentLatLng.value != null) {
                                 final bounds = LatLngBounds(
                                   southwest: LatLng(
@@ -2268,7 +2228,6 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                             },
                             polylines: _polylines.value,
                             markers: {
-                              // Destination marker (Red)
                               Marker(
                                 markerId: const MarkerId('destination'),
                                 position: destination,
@@ -2280,8 +2239,6 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                                   snippet: fullLocation,
                                 ),
                               ),
-
-                              // Current location marker (Green) - if available
                               if (_currentLatLng.value != null)
                                 Marker(
                                   markerId: const MarkerId('current_location'),
@@ -2306,20 +2263,17 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                               5,
                               20,
                             ),
-                            onTap: (LatLng position) {
-                              // Allow tap interactions
-                            },
+                            onTap: (LatLng position) {},
                           );
                         },
                       ),
 
-                      // Map Controls positioned far right
+                      // Map Controls
                       Positioned(
                         bottom: 12,
                         right: 8,
                         child: Column(
                           children: [
-                            // Satellite Button
                             ValueListenableBuilder<MapType>(
                               valueListenable: _currentMapType,
                               builder: (context, mapType, _) {
@@ -2359,8 +2313,6 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                                 );
                               },
                             ),
-
-                            // Current Location Button
                             Container(
                               decoration: BoxDecoration(
                                 color: Colors.white,
@@ -2401,7 +2353,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
               ),
             ],
 
-            // "Open in Google Maps" Button
+            // Open In Google Maps Button
             if (hasCoordinates) ...[
               SizedBox(height: isTablet ? 20 : (isSmallScreen ? 12 : 16)),
               Container(
@@ -2439,7 +2391,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                     size: isTablet ? 22 : 18,
                   ),
                   label: Text(
-                    "Open in Google Maps",
+                    "Open In Google Maps",
                     style: GoogleFonts.quicksand(
                       fontSize: isTablet ? 18 : (isSmallScreen ? 14 : 15),
                       fontWeight: FontWeight.w700,
@@ -2462,7 +2414,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
       ),
       child: Column(
         children: [
-          // Accept/Reject Header
+          // Booking Decision Header
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: Text(
@@ -2477,7 +2429,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
 
           Row(
             children: [
-              // REJECT Button at LEFT (Red Gradient)
+              // Reject Button
               Expanded(
                 child: Container(
                   height: isTablet ? 50 : (isSmallScreen ? 40 : 44),
@@ -2489,8 +2441,8 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        Color(0xFFF44336), // Red
-                        Color(0xFFD32F2F), // Dark Red
+                        Color(0xFFF44336),
+                        Color(0xFFD32F2F),
                       ],
                     ),
                     boxShadow: [
@@ -2537,7 +2489,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
 
               SizedBox(width: isTablet ? 12 : (isSmallScreen ? 8 : 10)),
 
-              // ACCEPT Button at RIGHT (Green Gradient with Verified Icon)
+              // Accept Button
               Expanded(
                 child: Container(
                   height: isTablet ? 50 : (isSmallScreen ? 40 : 44),
@@ -2549,8 +2501,8 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        Color(0xFF4CAF50), // Green
-                        Color(0xFF2E7D32), // Dark Green
+                        Color(0xFF4CAF50),
+                        Color(0xFF2E7D32),
                       ],
                     ),
                     boxShadow: [
@@ -2601,7 +2553,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     );
   }
 
-  // Helper methods for status display
+  /// Returns Display Text For Booking Status
   String _getStatusText(String status) {
     switch (status.toLowerCase()) {
       case 'requested':
@@ -2619,6 +2571,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     }
   }
 
+  /// Returns Color For Booking Status Badge
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'requested':
@@ -2636,6 +2589,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
     }
   }
 
+  /// Returns Gradient For Booking Status Badge
   LinearGradient _getStatusGradient(String status) {
     switch (status.toLowerCase()) {
       case 'requested':
@@ -2666,7 +2620,7 @@ class _OwnerRoomDetailsDialogState extends State<OwnerRoomDetailsDialog>
   }
 }
 
-// Modern Colors Palette (same as your card)
+/// Modern Color Palette For UI Consistency
 class ModernColors {
   static const Color primary = Color(0xFF007AFF);
   static const Color primaryDark = Color(0xFF0056CC);

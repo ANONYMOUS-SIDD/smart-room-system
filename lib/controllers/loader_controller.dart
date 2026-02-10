@@ -1,15 +1,14 @@
 import 'package:get/get.dart';
 
-/// Controller For Managing Loading States Across The Application
 class LoaderController extends GetxController {
   var isLoading = false.obs;
 
-  /// Start Loading Indicator
+  // Changes Loading Indicator State To True
   void startLoading() => isLoading.value = true;
 
-  /// Stop Loading Indicator
+  // Changes Loading Indicator State To False
   void stopLoading() => isLoading.value = false;
 
-  /// Toggle Loading State
+  // Toggles Between Loading And Not Loading States
   void toggleLoading() => isLoading.value = !isLoading.value;
 }

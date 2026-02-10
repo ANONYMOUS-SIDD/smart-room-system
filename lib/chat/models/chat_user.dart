@@ -23,22 +23,11 @@ class ChatUser {
   final DateTime? lastSeen;
   final bool isOnline;
 
-  // Factory method to create ChatUser from Firestore data
+  // Creates Chat User From Firestore Data Map
   factory ChatUser.fromFirestore(Map<String, dynamic> data) {
-    print('📄 ChatUser.fromFirestore data: $data');
-
-    // Extract name from multiple possible field names
     final name = _extractName(data);
-
-    // Extract sessionId/UID from multiple possible field names
     final sessionId = _extractSessionId(data);
-
-    // Extract ID - prioritize sessionId, then fallback
-    final id = sessionId.isNotEmpty
-        ? sessionId
-        : (data['id']?.toString() ?? '');
-
-    // Ensure we always have an ID
+    final id = sessionId.isNotEmpty ? sessionId : (data['id']?.toString() ?? '');
     final finalId = id.isNotEmpty ? id : DateTime.now().millisecondsSinceEpoch.toString();
 
     return ChatUser(
@@ -48,15 +37,14 @@ class ChatUser {
       phone: data['Phone']?.toString() ?? data['phone']?.toString() ?? '',
       sessionId: sessionId,
       profilePath: _extractProfilePath(data),
-      createdAt: _extractDateTime(data['createdAt']) ?? DateTime.now(), // FIX: Provide default
-      lastSeen: _extractDateTime(data['lastSeen']), // This can be null
+      createdAt: _extractDateTime(data['createdAt']) ?? DateTime.now(),
+      lastSeen: _extractDateTime(data['lastSeen']),
       isOnline: data['isOnline'] ?? data['online'] ?? false,
     );
   }
 
-  // Helper method to extract name
+  // Extracts Name From Multiple Possible Field Names
   static String _extractName(Map<String, dynamic> data) {
-    // Try multiple field names in order of priority
     final List<String> possibleNameFields = [
       'Name',
       'name',
@@ -75,7 +63,7 @@ class ChatUser {
     return '';
   }
 
-  // Helper method to extract sessionId/UID
+  // Extracts Session ID From Multiple Possible Field Names
   static String _extractSessionId(Map<String, dynamic> data) {
     final List<String> possibleIdFields = [
       'SessionId',
@@ -95,7 +83,7 @@ class ChatUser {
     return '';
   }
 
-  // Helper method to extract profile path
+  // Extracts Profile Path From Multiple Possible Field Names
   static String _extractProfilePath(Map<String, dynamic> data) {
     final List<String> possibleImageFields = [
       'Path',
@@ -117,7 +105,7 @@ class ChatUser {
     return '';
   }
 
-  // Helper method to extract DateTime from various formats
+  // Converts Various Timestamp Formats To DateTime
   static DateTime? _extractDateTime(dynamic timestamp) {
     if (timestamp == null) return null;
 
@@ -131,10 +119,8 @@ class ChatUser {
 
     if (timestamp is String) {
       try {
-        // Try parsing ISO string
         return DateTime.parse(timestamp);
       } catch (e) {
-        // Try parsing milliseconds
         final millis = int.tryParse(timestamp);
         if (millis != null) {
           return DateTime.fromMillisecondsSinceEpoch(millis);
@@ -149,7 +135,7 @@ class ChatUser {
     return null;
   }
 
-  // Factory method to create a temporary user (for room owners not in User collection)
+  // Creates Temporary User For Room Owners Not In User Collection
   factory ChatUser.createTemporary({
     required String userId,
     String name = 'Room Owner',
@@ -170,7 +156,7 @@ class ChatUser {
     );
   }
 
-  // Convert to Firestore format
+  // Converts To Firestore Format For Database Storage
   Map<String, dynamic> toFirestore() {
     return {
       'id': id,
@@ -185,7 +171,7 @@ class ChatUser {
     };
   }
 
-  // Convert to simplified map for UI display
+  // Converts To Simplified JSON For UI Display
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -200,7 +186,7 @@ class ChatUser {
     };
   }
 
-  // Create a copy with updated values
+  // Creates Copy With Updated Values
   ChatUser copyWith({
     String? id,
     String? name,
@@ -225,10 +211,10 @@ class ChatUser {
     );
   }
 
-  // Check if user is valid (has required fields)
+  // Checks If User Has Required Fields
   bool get isValid => id.isNotEmpty && name.isNotEmpty && sessionId.isNotEmpty;
 
-  // Get initials for avatar
+  // Gets User Initials For Avatar Display
   String get initials {
     if (name.isEmpty) return '?';
 
@@ -242,7 +228,7 @@ class ChatUser {
     }
   }
 
-  // Check if user was active recently (within last 5 minutes)
+  // Checks If User Was Active Within Last Five Minutes
   bool get isRecentlyActive {
     if (lastSeen == null) return false;
 
@@ -251,24 +237,24 @@ class ChatUser {
     return difference.inMinutes <= 5;
   }
 
-  // Format last seen time for display
+  // Formats Last Seen Time For User Friendly Display
   String get formattedLastSeen {
     if (lastSeen == null) return 'Never';
 
     final now = DateTime.now();
     final difference = now.difference(lastSeen!);
 
-    if (difference.inSeconds < 60) return 'Just now';
-    if (difference.inMinutes < 60) return '${difference.inMinutes}m ago';
-    if (difference.inHours < 24) return '${difference.inHours}h ago';
-    if (difference.inDays < 7) return '${difference.inDays}d ago';
+    if (difference.inSeconds < 60) return 'Just Now';
+    if (difference.inMinutes < 60) return '${difference.inMinutes}M Ago';
+    if (difference.inHours < 24) return '${difference.inHours}H Ago';
+    if (difference.inDays < 7) return '${difference.inDays}D Ago';
 
-    return '${difference.inDays ~/ 7}w ago';
+    return '${difference.inDays ~/ 7}W Ago';
   }
 
   @override
   String toString() {
-    return 'ChatUser{id: $id, name: $name, email: $email, sessionId: $sessionId, isOnline: $isOnline}';
+    return 'ChatUser{Id: $id, Name: $name, Email: $email, SessionId: $sessionId, IsOnline: $isOnline}';
   }
 
   @override
